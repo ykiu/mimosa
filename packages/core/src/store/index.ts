@@ -18,13 +18,22 @@ import {
   advanceExponentialInertia,
 } from './primitives.js';
 
-type InternalState = {
+type Transform = {
   x: LinearPrimitive;
   y: LinearPrimitive;
   scale: ExponentialPrimitive;
 };
 
-function applyMotion(state: InternalState, motion: Motion, dtMs: number): InternalState {
+type StoreState = {
+  transform: Transform;
+  pendingMotions: Motion[];
+};
+
+type StoreAction = { type: 'motion'; motion: Motion } | { type: 'tick'; dtMs: number };
+
+type ReducerResult = { state: StoreState; shouldEmit: boolean };
+
+function applyMotion(transform: Transform, motion: Motion, dtMs: number): Transform {
   // When the scale origin is not at (0,0), we need to adjust the translation
   // so that the point under the pinch stays fixed.
   //
@@ -32,94 +41,110 @@ function applyMotion(state: InternalState, motion: Motion, dtMs: number): Intern
   //          newTY = originY + (ty - originY) * dScale + dy
   const { dx, dy, dScale, originX, originY } = motion;
 
-  const tx = state.x.value;
-  const ty = state.y.value;
+  const tx = transform.x.value;
+  const ty = transform.y.value;
 
   const newTx = originX + (tx - originX) * dScale + dx;
   const newTy = originY + (ty - originY) * dScale + dy;
 
-  const deltaTx = newTx - tx;
-  const deltaTy = newTy - ty;
-
   return {
-    x: applyLinearDelta(state.x, deltaTx, dtMs),
-    y: applyLinearDelta(state.y, deltaTy, dtMs),
-    scale: applyExponentialFactor(state.scale, dScale, dtMs),
+    x: applyLinearDelta(transform.x, newTx - tx, dtMs),
+    y: applyLinearDelta(transform.y, newTy - ty, dtMs),
+    scale: applyExponentialFactor(transform.scale, dScale, dtMs),
   };
 }
 
-function advanceInertia(state: InternalState, dtMs: number): InternalState {
+function advanceInertia(transform: Transform, dtMs: number): Transform {
   return {
-    x: advanceLinearInertia(state.x, dtMs),
-    y: advanceLinearInertia(state.y, dtMs),
-    scale: advanceExponentialInertia(state.scale, dtMs),
+    x: advanceLinearInertia(transform.x, dtMs),
+    y: advanceLinearInertia(transform.y, dtMs),
+    scale: advanceExponentialInertia(transform.scale, dtMs),
   };
 }
 
-function toPublicState(state: InternalState): State {
+function toPublicState(transform: Transform): State {
   return {
-    transformX: state.x.value,
-    transformY: state.y.value,
-    scale: state.scale.value,
+    transformX: transform.x.value,
+    transformY: transform.y.value,
+    scale: transform.scale.value,
   };
 }
 
 const VELOCITY_THRESHOLD = 0.01; // px/ms
 const LOG_VELOCITY_THRESHOLD = 0.0001; // log-units/ms
 
-function hasSignificantVelocity(state: InternalState): boolean {
+function hasSignificantVelocity(transform: Transform): boolean {
   return (
-    Math.abs(state.x.velocity) > VELOCITY_THRESHOLD ||
-    Math.abs(state.y.velocity) > VELOCITY_THRESHOLD ||
-    Math.abs(state.scale.logVelocity) > LOG_VELOCITY_THRESHOLD
+    Math.abs(transform.x.velocity) > VELOCITY_THRESHOLD ||
+    Math.abs(transform.y.velocity) > VELOCITY_THRESHOLD ||
+    Math.abs(transform.scale.logVelocity) > LOG_VELOCITY_THRESHOLD
   );
+}
+
+function reduce(state: StoreState, action: StoreAction): ReducerResult {
+  switch (action.type) {
+    case 'motion':
+      return {
+        state: { ...state, pendingMotions: [...state.pendingMotions, action.motion] },
+        shouldEmit: false,
+      };
+    case 'tick': {
+      if (state.pendingMotions.length > 0) {
+        let transform = state.transform;
+        for (const motion of state.pendingMotions) {
+          transform = applyMotion(transform, motion, action.dtMs / state.pendingMotions.length);
+        }
+        return { state: { transform, pendingMotions: [] }, shouldEmit: true };
+      }
+      if (hasSignificantVelocity(state.transform)) {
+        return {
+          state: { transform: advanceInertia(state.transform, action.dtMs), pendingMotions: [] },
+          shouldEmit: true,
+        };
+      }
+      return { state, shouldEmit: false };
+    }
+  }
 }
 
 export function createStore(): Store {
   return (interpreters: MountedInterpreter[]): MountedStore => {
     const callbacks = new Set<Callback<State>>();
-    const pendingMotions: Motion[] = [];
 
-    let internalState: InternalState = {
-      x: createLinearPrimitive(0),
-      y: createLinearPrimitive(0),
-      scale: createExponentialPrimitive(1),
+    let state: StoreState = {
+      transform: {
+        x: createLinearPrimitive(0),
+        y: createLinearPrimitive(0),
+        scale: createExponentialPrimitive(1),
+      },
+      pendingMotions: [],
     };
 
     let lastTimestamp: number | null = null;
     let rafId: number | null = null;
     let mounted = true;
 
-    function emit() {
-      const state = toPublicState(internalState);
-      for (const cb of callbacks) cb(state);
+    function dispatch(action: StoreAction) {
+      const result = reduce(state, action);
+      state = result.state;
+      if (result.shouldEmit) {
+        const publicState = toPublicState(state.transform);
+        for (const cb of callbacks) cb(publicState);
+      }
     }
 
     function loop(timestamp: number) {
       if (!mounted) return;
-
       const dtMs = lastTimestamp !== null ? Math.min(timestamp - lastTimestamp, 100) : 16;
       lastTimestamp = timestamp;
-
-      if (pendingMotions.length > 0) {
-        // Collapse all pending motions into the state
-        for (const motion of pendingMotions) {
-          internalState = applyMotion(internalState, motion, dtMs / pendingMotions.length);
-        }
-        pendingMotions.length = 0;
-        emit();
-      } else if (hasSignificantVelocity(internalState)) {
-        internalState = advanceInertia(internalState, dtMs);
-        emit();
-      }
-
+      dispatch({ type: 'tick', dtMs });
       rafId = requestAnimationFrame(loop);
     }
 
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((motion: Motion) => {
-        pendingMotions.push(motion);
+        dispatch({ type: 'motion', motion });
       }),
     );
 
