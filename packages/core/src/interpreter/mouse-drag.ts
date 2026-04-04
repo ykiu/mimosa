@@ -1,38 +1,62 @@
 import type { Interpreter, MountedInterpreter, Callback, Motion, UnsubscribeFn } from '../types.js';
 
+type MouseDragState =
+  | { type: 'idle' }
+  | { type: 'dragging'; prevX: number; prevY: number };
+
+type MouseDragAction =
+  | { type: 'mousedown'; x: number; y: number }
+  | { type: 'mousemove'; x: number; y: number }
+  | { type: 'mouseup' };
+
+type ReducerResult = { state: MouseDragState; motion?: Motion };
+
+function reduce(state: MouseDragState, action: MouseDragAction): ReducerResult {
+  switch (action.type) {
+    case 'mousedown':
+      return { state: { type: 'dragging', prevX: action.x, prevY: action.y } };
+
+    case 'mousemove':
+      if (state.type !== 'dragging') return { state };
+      return {
+        state: { type: 'dragging', prevX: action.x, prevY: action.y },
+        motion: {
+          dx: action.x - state.prevX,
+          dy: action.y - state.prevY,
+          dScale: 1,
+          originX: 0,
+          originY: 0,
+        },
+      };
+
+    case 'mouseup':
+      return { state: { type: 'idle' } };
+  }
+}
+
 export function mouseDragInterpreter(): Interpreter {
   return (element: Element): MountedInterpreter => {
     const callbacks = new Set<Callback<Motion>>();
+    let state: MouseDragState = { type: 'idle' };
 
-    let dragging = false;
-    let prevX = 0;
-    let prevY = 0;
-
-    function emit(motion: Motion) {
-      for (const cb of callbacks) cb(motion);
+    function dispatch(action: MouseDragAction) {
+      const result = reduce(state, action);
+      state = result.state;
+      if (result.motion) {
+        for (const cb of callbacks) cb(result.motion);
+      }
     }
 
     function onMouseDown(e: MouseEvent) {
-      dragging = true;
-      prevX = e.clientX;
-      prevY = e.clientY;
+      dispatch({ type: 'mousedown', x: e.clientX, y: e.clientY });
     }
 
     function onMouseMove(e: MouseEvent) {
-      if (!dragging) return;
-      emit({
-        dx: e.clientX - prevX,
-        dy: e.clientY - prevY,
-        dScale: 1,
-        originX: 0,
-        originY: 0,
-      });
-      prevX = e.clientX;
-      prevY = e.clientY;
+      dispatch({ type: 'mousemove', x: e.clientX, y: e.clientY });
     }
 
     function onMouseUp() {
-      dragging = false;
+      dispatch({ type: 'mouseup' });
     }
 
     element.addEventListener('mousedown', onMouseDown as EventListener);

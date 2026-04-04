@@ -2,6 +2,19 @@ import type { Interpreter, MountedInterpreter, Callback, Motion, UnsubscribeFn }
 
 type TouchPoint = { x: number; y: number };
 
+type TouchState =
+  | { type: 'no_touch' }
+  | { type: 'single_touch'; point: TouchPoint }
+  | { type: 'multi_touch'; points: [TouchPoint, TouchPoint] };
+
+type TouchAction =
+  | { type: 'touchstart'; points: TouchPoint[] }
+  | { type: 'touchmove'; points: TouchPoint[]; elementRect: DOMRect }
+  | { type: 'touchend'; points: TouchPoint[] }
+  | { type: 'touchcancel'; points: TouchPoint[] };
+
+type ReducerResult = { state: TouchState; motion?: Motion };
+
 function getDistance(a: TouchPoint, b: TouchPoint): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -16,77 +29,100 @@ function toPoint(touch: Touch): TouchPoint {
   return { x: touch.clientX, y: touch.clientY };
 }
 
+function stateFromPoints(points: TouchPoint[]): TouchState {
+  if (points.length === 0) return { type: 'no_touch' };
+  if (points.length === 1) return { type: 'single_touch', point: points[0] };
+  return { type: 'multi_touch', points: [points[0], points[1]] };
+}
+
+function reduce(state: TouchState, action: TouchAction): ReducerResult {
+  switch (action.type) {
+    case 'touchstart':
+    case 'touchend':
+    case 'touchcancel':
+      return { state: stateFromPoints(action.points) };
+
+    case 'touchmove': {
+      const { points: currPoints, elementRect } = action;
+
+      if (state.type === 'single_touch' && currPoints.length === 1) {
+        const curr = currPoints[0];
+        return {
+          state: { type: 'single_touch', point: curr },
+          motion: {
+            dx: curr.x - state.point.x,
+            dy: curr.y - state.point.y,
+            dScale: 1,
+            originX: 0,
+            originY: 0,
+          },
+        };
+      }
+
+      if (state.type === 'multi_touch' && currPoints.length >= 2) {
+        const [curr0, curr1] = currPoints;
+        const [prev0, prev1] = state.points;
+        const currMid = getMidpoint(curr0, curr1);
+        const prevMid = getMidpoint(prev0, prev1);
+        const currDist = getDistance(curr0, curr1);
+        const prevDist = getDistance(prev0, prev1);
+        const dScale = prevDist === 0 ? 1 : currDist / prevDist;
+        return {
+          state: { type: 'multi_touch', points: [curr0, curr1] },
+          motion: {
+            dx: currMid.x - prevMid.x,
+            dy: currMid.y - prevMid.y,
+            dScale,
+            originX: currMid.x - elementRect.left,
+            originY: currMid.y - elementRect.top,
+          },
+        };
+      }
+
+      // Finger count doesn't match current state — update state without emitting motion
+      return { state: stateFromPoints(currPoints) };
+    }
+  }
+}
+
 export function touchInterpreter(): Interpreter {
   return (element: Element): MountedInterpreter => {
     const callbacks = new Set<Callback<Motion>>();
+    let state: TouchState = { type: 'no_touch' };
 
-    // Previous touch state
-    let prevPoints: TouchPoint[] = [];
-
-    function emit(motion: Motion) {
-      for (const cb of callbacks) cb(motion);
-    }
-
-    function getTouchPoints(e: TouchEvent): TouchPoint[] {
-      return Array.from(e.touches).map(toPoint);
+    function dispatch(action: TouchAction) {
+      const result = reduce(state, action);
+      state = result.state;
+      if (result.motion) {
+        for (const cb of callbacks) cb(result.motion);
+      }
     }
 
     function onTouchStart(e: TouchEvent) {
-      prevPoints = getTouchPoints(e);
+      dispatch({ type: 'touchstart', points: Array.from(e.touches).map(toPoint) });
     }
 
     function onTouchMove(e: TouchEvent) {
       e.preventDefault();
-      const currPoints = getTouchPoints(e);
-
-      if (currPoints.length === 0 || prevPoints.length === 0) {
-        prevPoints = currPoints;
-        return;
-      }
-
-      if (currPoints.length === 1 && prevPoints.length >= 1) {
-        // Pan
-        const curr = currPoints[0];
-        const prev = prevPoints[0];
-        emit({
-          dx: curr.x - prev.x,
-          dy: curr.y - prev.y,
-          dScale: 1,
-          originX: 0,
-          originY: 0,
-        });
-      } else if (currPoints.length >= 2 && prevPoints.length >= 2) {
-        // Pinch + pan
-        const currMid = getMidpoint(currPoints[0], currPoints[1]);
-        const prevMid = getMidpoint(prevPoints[0], prevPoints[1]);
-        const currDist = getDistance(currPoints[0], currPoints[1]);
-        const prevDist = getDistance(prevPoints[0], prevPoints[1]);
-
-        const dScale = prevDist === 0 ? 1 : currDist / prevDist;
-        const rect = element.getBoundingClientRect();
-        const originX = currMid.x - rect.left;
-        const originY = currMid.y - rect.top;
-
-        emit({
-          dx: currMid.x - prevMid.x,
-          dy: currMid.y - prevMid.y,
-          dScale,
-          originX,
-          originY,
-        });
-      }
-
-      prevPoints = currPoints;
+      dispatch({
+        type: 'touchmove',
+        points: Array.from(e.touches).map(toPoint),
+        elementRect: element.getBoundingClientRect(),
+      });
     }
 
     function onTouchEnd(e: TouchEvent) {
-      prevPoints = getTouchPoints(e);
+      dispatch({ type: 'touchend', points: Array.from(e.touches).map(toPoint) });
+    }
+
+    function onTouchCancel(e: TouchEvent) {
+      dispatch({ type: 'touchcancel', points: Array.from(e.touches).map(toPoint) });
     }
 
     element.addEventListener('touchstart', onTouchStart as EventListener, { passive: true });
     element.addEventListener('touchmove', onTouchMove as EventListener, { passive: false });
     element.addEventListener('touchend', onTouchEnd as EventListener, { passive: true });
-    element.addEventListener('touchcancel', onTouchEnd as EventListener, { passive: true });
+    element.addEventListener('touchcancel', onTouchCancel as EventListener, { passive: true });
 
     return {
       subscribe(cb: Callback<Motion>): UnsubscribeFn {
@@ -97,7 +133,7 @@ export function touchInterpreter(): Interpreter {
         element.removeEventListener('touchstart', onTouchStart as EventListener);
         element.removeEventListener('touchmove', onTouchMove as EventListener);
         element.removeEventListener('touchend', onTouchEnd as EventListener);
-        element.removeEventListener('touchcancel', onTouchEnd as EventListener);
+        element.removeEventListener('touchcancel', onTouchCancel as EventListener);
         callbacks.clear();
       },
     };

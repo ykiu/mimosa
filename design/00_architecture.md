@@ -71,6 +71,28 @@ Implementation details:
 - **mouseDragInterpreter**: A factory function for an interpreter that handles mouse drag events. Tracks mouse movement and identifies pan gestures.
 - **mouseWheelInterpreter**: A factory function for an interpreter that handles mouse wheel events. Tracks wheel rotation and identifies zoom gestures.
 
+### State Representation and Reducer Pattern
+
+Each stateful interpreter models its internal state as a tagged union, where each variant represents a distinct and valid configuration:
+
+- `touchInterpreter`: `no_touch | single_touch | multi_touch`
+- `mouseDragInterpreter`: `idle | dragging`
+
+With tagged unions, impossible states become inexpressible. For example, a `single_touch` state necessarily carries exactly one touch point, and a `multi_touch` state necessarily carries exactly two — the type system enforces these invariants with no runtime checks required. Additionally, the set of valid state transitions becomes self-documenting: `touchInterpreter` can transition `no_touch → single_touch` and `single_touch → multi_touch`, but not `no_touch → multi_touch` directly. A `touchmove` event received while in `no_touch` state cannot reach the code path that computes a pan motion, because that path pattern-matches on `single_touch`.
+
+State transitions are implemented as a pure reducer:
+
+```
+reduce(state, action) => { state, motion? }
+```
+
+where each `action` corresponds to a DOM event. Separating pure transition logic from side effects (event subscription, Motion emission) yields two practical benefits:
+
+1. **Testability**: The reducer can be tested as a plain function with no DOM setup — pass a state and an action, assert on the returned state and motion.
+2. **Traceability**: Every state change originates from a named action, making the flow of data easy to follow and debug.
+
+Side effects are confined to the thin `dispatch()` wrapper inside each interpreter factory, which calls `reduce`, updates the stored state, and emits Motion if one was returned.
+
 ## Store Module
 
 The Store module takes Motion from the Interpreter as input and manages the state of transformations applied to the target element. The Store holds the transform that should be applied to the target element. It also tracks the rate of change computed from the delta between the current and previous states, for use in inertia simulation. For example, if the transform is 40 px at one moment and 50 px 16 ms later, the rate of change is computed as 10 px / 16 ms.
