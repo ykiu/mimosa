@@ -35,3 +35,8 @@ export type MountedRenderer = {
 };
 
 export type Renderer = (element: Element, store: MountedStore) => MountedRenderer;
+
+export type SnapConfig = {
+  x?: (value: number) => number;
+  y?: (value: number) => number;
+};

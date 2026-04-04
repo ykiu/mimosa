@@ -119,6 +119,16 @@ Implementation details:
 
 - State transitions in the Store are written as reducers. The root reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: LinearPrimitive for translation and ExponentialPrimitive for scale. LinearPrimitive treats translation linearly, because the relationship between user input (e.g., drag distance) and translation is linear. ExponentialPrimitive treats scale exponentially, because scale is multiplicative in nature and an exponential representation provides a more natural feel during zoom in/out.
 - Velocity information (velocityX, velocityY, scaleVelocity) is held as internal Store state and is not included in State.
+- The Store supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour after inertia settles. When configured, the Store transitions through the following internal phases: **tracking** (motions being applied) → **inertia** (free velocity decay) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. Any new motion received while snapping resets the phase back to tracking.
+
+```typescript
+type SnapConfig = {
+  x?: (value: number) => number; // returns the nearest snap target for the given x
+  y?: (value: number) => number; // returns the nearest snap target for the given y
+};
+
+createStore({ snap?: SnapConfig }): Store
+```
 
 ## Renderer Module
 

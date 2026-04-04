@@ -79,3 +79,20 @@ export function advanceExponentialInertia(
   const value = prim.value * Math.exp(logVelocity * dtMs);
   return { value, logVelocity };
 }
+
+/**
+ * Advance a LinearPrimitive toward a target using exponential spring.
+ * Each millisecond, the gap between current value and target shrinks by (1 - decayFactor).
+ * decayFactor: fraction of gap retained per ms (lower = faster convergence).
+ */
+export function advanceLinearSpring(
+  prim: LinearPrimitive,
+  target: number,
+  dtMs: number,
+  decayFactor = 0.9,
+): LinearPrimitive {
+  const retainFactor = Math.pow(decayFactor, dtMs);
+  const value = target + (prim.value - target) * retainFactor;
+  const velocity = dtMs > 0 ? (value - prim.value) / dtMs : 0;
+  return { value, velocity };
+}

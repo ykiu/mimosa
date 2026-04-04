@@ -10,6 +10,7 @@ export type {
   Store,
   MountedRenderer,
   Renderer,
+  SnapConfig,
 } from './types.js';
 
 export { touchInterpreter, mouseDragInterpreter, mouseWheelInterpreter } from './interpreter/index.js';

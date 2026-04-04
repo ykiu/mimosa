@@ -3,6 +3,7 @@ import {
   createLinearPrimitive,
   applyLinearDelta,
   advanceLinearInertia,
+  advanceLinearSpring,
   createExponentialPrimitive,
   applyExponentialFactor,
   advanceExponentialInertia,
@@ -29,6 +30,30 @@ describe('LinearPrimitive', () => {
       prim = advanceLinearInertia(prim, 16);
     }
     expect(Math.abs(prim.velocity)).toBeLessThan(0.001);
+  });
+});
+
+describe('advanceLinearSpring', () => {
+  it('moves value toward target', () => {
+    const prim = { value: 0, velocity: 0 };
+    const next = advanceLinearSpring(prim, 100, 16);
+    expect(next.value).toBeGreaterThan(0);
+    expect(next.value).toBeLessThan(100);
+  });
+
+  it('converges to target over many frames', () => {
+    let prim = { value: 0, velocity: 0 };
+    for (let i = 0; i < 200; i++) {
+      prim = advanceLinearSpring(prim, 100, 16);
+    }
+    expect(prim.value).toBeCloseTo(100, 1);
+  });
+
+  it('returns target immediately when already at target', () => {
+    const prim = { value: 100, velocity: 0 };
+    const next = advanceLinearSpring(prim, 100, 16);
+    expect(next.value).toBeCloseTo(100);
+    expect(next.velocity).toBeCloseTo(0);
   });
 });
 
