@@ -1,12 +1,12 @@
-# Web 用 ピンチ・パン対応ライブラリのアーキテクチャ
+# Architecture of the Web Pinch/Pan Library
 
-## 規約
+## Conventions
 
-本ライブラリでは、すべての変換を transformX、transformY、scale の組で表現します。scale の transform-origin は対象要素の左上隅に設定します。ピンチジェスチャーの中心点を基準にスケールしているように見せるために、ピンチの中心点に応じた適切な transformX および transformY の値を計算します（実際のスケール変換は左上隅を基準に適用されます）。
+All transformations in this library are expressed as a combination of transformX, transformY, and scale. The transform-origin for scale is set to the top-left corner of the target element. To make it appear as though scaling is centered on the pinch gesture's midpoint, the library computes appropriate transformX and transformY values based on the pinch origin (the actual scale transform is always applied relative to the top-left corner).
 
-本ライブラリでは状態遷移ロジックを reducer として記述します。
+State transition logic in this library is written as reducers.
 
-## 共通型定義
+## Common Type Definitions
 
 ```typescript
 type UnsubscribeFn = () => void;
@@ -14,43 +14,43 @@ type UnmountFn = () => void;
 type Callback<T> = (value: T) => void;
 ```
 
-**Motion** は Interpreter が出力する、直前の状態からの相対変化量です。pan の場合は `dScale: 1`、`originX/Y: 0` とします。
+**Motion** is the output of an Interpreter and represents the relative change from the previous state. For pan gestures, use `dScale: 1` and `originX/Y: 0`.
 
 ```typescript
 type Motion = {
-  dx: number;      // 水平移動量 (px)
-  dy: number;      // 垂直移動量 (px)
-  dScale: number;  // スケール乗算係数（1.0 = 変化なし、1.1 = 10% 拡大）
-  originX: number; // スケール原点 X（要素左上からの相対座標 px）
-  originY: number; // スケール原点 Y（要素左上からの相対座標 px）
+  dx: number;      // horizontal translation delta (px)
+  dy: number;      // vertical translation delta (px)
+  dScale: number;  // multiplicative scale factor (1.0 = no change, 1.1 = 10% zoom in)
+  originX: number; // scale origin X, relative to the element's top-left corner (px)
+  originY: number; // scale origin Y, relative to the element's top-left corner (px)
 };
 ```
 
-**State** は Store が出力する、対象要素に適用される変換の現在値です。速度情報は Store の内部状態として隠蔽します。
+**State** is the output of the Store and represents the current transform applied to the target element. Velocity information is kept as internal Store state and is not exposed.
 
 ```typescript
 type State = {
-  transformX: number; // 水平移動量 (px)
-  transformY: number; // 垂直移動量 (px)
-  scale: number;      // スケール係数（1.0 = 等倍）
+  transformX: number; // horizontal translation (px)
+  transformY: number; // vertical translation (px)
+  scale: number;      // scale factor (1.0 = original size)
 };
 ```
 
-## モジュール構成
+## Module Composition
 
-本ライブラリは、以下の 3つの主要なモジュールで構成されます。
+The library consists of three primary modules:
 
-1. **Interpreter**: ジェスチャーの検出と処理を担当するモジュールです。ユーザーの入力をキャプチャし、ピンチやパンなどのジェスチャーを識別します。
-2. **Store**: 対象要素に適用される変換（拡大縮小、移動など）の状態管理を担います。
-3. **Renderer**: 対象要素の描画を担当するモジュールです。Store の情報を参照し、実際の DOM 要素に適用します。
+1. **Interpreter**: Responsible for detecting and processing gestures. Captures user input and identifies gestures such as pinch and pan.
+2. **Store**: Manages the state of transformations (scale, translation, etc.) applied to the target element.
+3. **Renderer**: Responsible for rendering the target element. Reads from the Store and applies transformations to the actual DOM element.
 
-## Interpreter モジュール
+## Interpreter Module
 
-本モジュールの役割は、TouchEvent や MouseEvent などのユーザー入力を抽象化し、そこから拡大/縮小、移動などの意味を解釈することです。本モジュールは、これらのイベントを入力とするステートマシンを提供します。
+The role of this module is to abstract user input events such as TouchEvent and MouseEvent, and interpret them as meaningful actions such as zoom or pan. The module provides a state machine that takes these events as input.
 
-Interpreter は、検出されたジェスチャーの情報を **Motion** として提供します。Motion は、変換を直前の状態からの相対的な変化量として表現します。ステートマシンの特定の状態遷移は、Motion を生成するトリガーとなります。Motion は、Interpreter に与えられたコールバックを通して外部に通知されます。
+The Interpreter emits detected gesture information as **Motion**. Motion expresses transformations as relative changes from the previous state. Specific state transitions in the state machine trigger Motion generation. Motion is delivered to the outside world via a callback provided to the Interpreter.
 
-主要なインターフェース、関数は以下の通りです。
+Key interfaces and functions:
 
 ```typescript
 type Interpreter = (element: Element) => MountedInterpreter;
@@ -64,22 +64,22 @@ declare function mouseDragInterpreter(): Interpreter;
 declare function mouseWheelInterpreter(): Interpreter;
 ```
 
-実装の詳細
+Implementation details:
 
-- Interpreter は、呼び出されると addEventListener を呼び出して対象要素のイベントの監視を開始します。UnmountFn が呼び出されると監視を停止します。
-- **touchInterpreter**: タッチイベントを処理する interpreter のファクトリ関数です。複数のタッチポイントを追跡し、ピンチやパンなどのジェスチャーを識別します。
-- **mouseDragInterpreter**: マウスドラッグイベントを処理する interpreter のファクトリ関数です。マウスの移動を追跡し、パンジェスチャーを識別します。
-- **mouseWheelInterpreter**: マウスホイールイベントを処理する interpreter のファクトリ関数です。ホイールの回転を追跡し、拡大縮小ジェスチャーを識別します。
+- When called, an Interpreter begins listening to the target element's events via addEventListener. Listening stops when UnmountFn is called.
+- **touchInterpreter**: A factory function for an interpreter that handles touch events. Tracks multiple touch points and identifies gestures such as pinch and pan.
+- **mouseDragInterpreter**: A factory function for an interpreter that handles mouse drag events. Tracks mouse movement and identifies pan gestures.
+- **mouseWheelInterpreter**: A factory function for an interpreter that handles mouse wheel events. Tracks wheel rotation and identifies zoom gestures.
 
-## Store モジュール
+## Store Module
 
-Store モジュールは、Interpreter から提供される Motion を入力とし、対象要素の変換を管理する状態機械です。Store は、対象要素に適用されるべき変換を保持します。また、慣性表現のために、直前の状態との差分をもとに算出された変化率も保持します。例えば、ある瞬間の transform が 40 px であるとして、16 ms 後にそれが 50 px になったとします。この時、変化率は 10 px / 16 ms として計算されます。
+The Store module takes Motion from the Interpreter as input and manages the state of transformations applied to the target element. The Store holds the transform that should be applied to the target element. It also tracks the rate of change computed from the delta between the current and previous states, for use in inertia simulation. For example, if the transform is 40 px at one moment and 50 px 16 ms later, the rate of change is computed as 10 px / 16 ms.
 
-Store は、requestAnimationFrame() によって駆動される定常的な更新ループを持ちます。Store は ループ間で受け取った Motion をキューイングし、それらを次のループで処理します。前回のループからの間に受け取った Motion がない場合、変化率を指数関数的に減衰させながら慣性表現のための変換を更新します。
+The Store has a continuous update loop driven by requestAnimationFrame(). It queues Motion received between loop iterations and processes them on the next iteration. If no Motion has been received since the last loop, the Store updates the transform for inertia simulation by exponentially decaying the rate of change.
 
-Store の更新ループは絶えず回り続け、基本的に止まることはありません。最適化のために、有意な変化がない場合に描画ループを一時停止することも認められますが、これは Store モジュールの実装の詳細とみなすべきであり、他のモジュールがこの挙動に依存してはなりません。
+The Store's update loop runs continuously and does not stop under normal circumstances. As an optimization, pausing the loop when there are no significant changes is permitted, but this must be treated as an implementation detail of the Store module — other modules must not depend on this behavior.
 
-Store は、コールバックを通して状態変化を通知します。
+The Store notifies state changes via callbacks.
 
 ```typescript
 type Store = (interpreters: MountedInterpreter[]) => MountedStore;
@@ -91,18 +91,18 @@ type MountedStore = {
 declare function createStore(): Store;
 ```
 
-Store に渡す `MountedInterpreter[]` の生成（Interpreter の mount）は、ユーザーの責任とします。
+Mounting the `MountedInterpreter[]` passed to the Store (i.e., calling the Interpreters) is the responsibility of the caller.
 
-実装の詳細
+Implementation details:
 
-- Store の状態遷移は reducer として記述されます。Store の root reducer は、transform と scale の変化率のトラッキングを sub reducer ValuePrimitive に委譲します。ValuePrimitive には transform のための LinearPrimitive と、scale のための ExponentialPrimitive があります。LinearPrimitive は移動量を線形に扱います。これはドラッグ操作などのユーザー入力と移動量の関係が線形であるためです。ExponentialPrimitive は scale を指数関数的に扱います。これは scale が乗算的な性質を持ち、指数関数的な表現のほうがズームイン・ズームアウト時に自然な操作感を提供できるためです。
-- 速度情報（velocityX、velocityY、scaleVelocity）は Store の内部状態として保持し、State には含めません。
+- State transitions in the Store are written as reducers. The root reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: LinearPrimitive for translation and ExponentialPrimitive for scale. LinearPrimitive treats translation linearly, because the relationship between user input (e.g., drag distance) and translation is linear. ExponentialPrimitive treats scale exponentially, because scale is multiplicative in nature and an exponential representation provides a more natural feel during zoom in/out.
+- Velocity information (velocityX, velocityY, scaleVelocity) is held as internal Store state and is not included in State.
 
-## Renderer モジュール
+## Renderer Module
 
-Renderer モジュールは、Store からの変換情報を受け取り、実際の DOM 要素に適用する役割を担います。これには、CSS トランスフォームを使用して要素を拡大縮小したり、移動したりするためのロジックが含まれます。
+The Renderer module receives transform information from the Store and applies it to the actual DOM element. This includes logic for scaling and translating the element using CSS transforms.
 
-Renderer は Store を subscribe し、State が更新されるたびに対象要素の CSS トランスフォームを更新します。Renderer は内部状態を持たず、副作用（DOM の更新）のみを担います。
+The Renderer subscribes to the Store and updates the target element's CSS transform whenever State changes. The Renderer holds no internal state and is responsible only for side effects (DOM updates).
 
 ```typescript
 type Renderer = (element: Element, store: MountedStore) => MountedRenderer;
@@ -113,12 +113,12 @@ type MountedRenderer = {
 declare function createRenderer(): Renderer;
 ```
 
-## モジュール間の依存関係
+## Module Dependencies
 
-- Renderer は Store に依存します。Renderer は Store の状態を監視して、対象要素の変換を適用します。
-- Store は Interpreter に依存します。Store は Interpreter から提供される Motion を入力とし、状態を更新します。
-- Interpreter は Store や Renderer に依存しません。Interpreter は、ユーザー入力を処理し、Motion を生成することに専念します。
+- The Renderer depends on the Store. The Renderer subscribes to the Store's state and applies transformations to the target element.
+- The Store depends on the Interpreter. The Store takes Motion from the Interpreter as input and updates its state.
+- The Interpreter does not depend on the Store or Renderer. The Interpreter focuses solely on processing user input and generating Motion.
 
-## テスト方針
+## Testing Policy
 
-各モジュールは、単体テストを通じて個別にテストされるべきです。Interpreter モジュールは、ユーザー入力から正しい Motion が生成されることを確認するためのテストが必要です。Store モジュールは、Motion を受け取ったときに正しい状態更新が行われることを確認するためのテストが必要です。Renderer モジュールは、Store の状態に基づいて正しい CSS トランスフォームが適用されることを確認するためのテストが必要です。
+Each module should be tested individually through unit tests. The Interpreter module requires tests to verify that correct Motion is generated from user input. The Store module requires tests to verify that correct state updates occur when Motion is received. The Renderer module requires tests to verify that correct CSS transforms are applied based on the Store's state.

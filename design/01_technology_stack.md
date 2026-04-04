@@ -1,15 +1,15 @@
 # Technology Stack
 
-このプロジェクトは、モノレポ構成でライブラリとデモプロジェクトを管理します。
+This project uses a monorepo structure to manage the library and the demo application.
 
-## パッケージ構成
+## Packages
 
-| パッケージ | 役割 |
-|-----------|------|
-| `@mimosa/core` | ライブラリ本体 |
-| `@mimosa/demo` | 動作確認用デモアプリケーション |
+| Package | Role |
+|---------|------|
+| `@mimosa/core` | Library |
+| `@mimosa/demo` | Demo application for manual testing |
 
-## ディレクトリ構造
+## Directory Structure
 
 ```
 packages/
@@ -25,19 +25,19 @@ packages/
         index.ts
       renderer/
         index.ts
-      types.ts           # Motion, State, 共通プリミティブ型
+      types.ts           # Motion, State, and common primitive types
     package.json
     tsconfig.json
   demo/                  # @mimosa/demo
     src/
     package.json
     tsconfig.json
-package.json             # ワークスペースルート
+package.json             # workspace root
 ```
 
-## 使用技術
+## Tools and Frameworks
 
-- 共通
+- Common
   - TypeScript
   - Vite
 - `@mimosa/core`
@@ -45,4 +45,4 @@ package.json             # ワークスペースルート
 - `@mimosa/demo`
   - React
   - Tailwind CSS
-  - デモプロジェクトは UI 中心であり、自動テストは行いません。
+  - The demo is UI-focused and does not include automated tests.
