@@ -3,6 +3,7 @@ import type {
   MountedStore,
   MountedInterpreter,
   Motion,
+  InterpreterEvent,
   State,
   Callback,
   UnsubscribeFn,
@@ -36,9 +37,10 @@ type StoreState = {
   transform: Transform;
   pendingMotions: Motion[];
   phase: Phase;
+  pendingRelease: boolean;
 };
 
-type StoreAction = { type: 'motion'; motion: Motion } | { type: 'tick'; dtMs: number };
+type StoreAction = InterpreterEvent | { type: 'tick'; dtMs: number };
 
 type ReducerResult = { state: StoreState; shouldEmit: boolean };
 
@@ -106,16 +108,29 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
       switch (action.type) {
         case 'motion':
           return {
-            state: { ...state, pendingMotions: [...state.pendingMotions, action.motion], phase: { type: 'tracking' } },
+            state: { ...state, pendingMotions: [...state.pendingMotions, action], phase: { type: 'tracking' } },
             shouldEmit: false,
           };
+        case 'release':
+          return { state: { ...state, pendingRelease: true }, shouldEmit: false };
         case 'tick': {
           if (state.pendingMotions.length > 0) {
             let transform = state.transform;
             for (const motion of state.pendingMotions) {
               transform = applyMotion(transform, motion, action.dtMs / state.pendingMotions.length);
             }
-            return { state: { transform, pendingMotions: [], phase: { type: 'tracking' } }, shouldEmit: true };
+            if (state.pendingRelease && snap) {
+              const target = computeSnapTarget(snap, transform);
+              return { state: { transform, pendingMotions: [], phase: { type: 'snapping', target }, pendingRelease: false }, shouldEmit: true };
+            }
+            return { state: { transform, pendingMotions: [], phase: { type: 'tracking' }, pendingRelease: state.pendingRelease }, shouldEmit: true };
+          }
+          if (state.pendingRelease) {
+            if (snap) {
+              const target = computeSnapTarget(snap, state.transform);
+              return { state: { ...state, phase: { type: 'snapping', target }, pendingRelease: false }, shouldEmit: false };
+            }
+            return { state: { ...state, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: false };
           }
           if (hasSignificantVelocity(state.transform)) {
             return {
@@ -133,7 +148,7 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
                 x: { value: target.x, velocity: 0 },
                 y: { value: target.y, velocity: 0 },
               };
-              return { state: { transform, pendingMotions: [], phase: { type: 'settled' } }, shouldEmit: true };
+              return { state: { transform, pendingMotions: [], phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
             }
             return { state: { ...state, phase: { type: 'snapping', target } }, shouldEmit: false };
           }
@@ -145,9 +160,11 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
       switch (action.type) {
         case 'motion':
           return {
-            state: { ...state, pendingMotions: [...state.pendingMotions, action.motion], phase: { type: 'tracking' } },
+            state: { ...state, pendingMotions: [...state.pendingMotions, action], phase: { type: 'tracking' } },
             shouldEmit: false,
           };
+        case 'release':
+          return { state, shouldEmit: false };
         case 'tick': {
           const { target } = state.phase;
           const gapX = Math.abs(target.x - state.transform.x.value);
@@ -158,7 +175,7 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
               x: { value: target.x, velocity: 0 },
               y: { value: target.y, velocity: 0 },
             };
-            return { state: { transform, pendingMotions: [], phase: { type: 'settled' } }, shouldEmit: true };
+            return { state: { transform, pendingMotions: [], phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
           }
           const x = advanceLinearSpring(state.transform.x, target.x, action.dtMs);
           const y = advanceLinearSpring(state.transform.y, target.y, action.dtMs);
@@ -170,9 +187,11 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
       switch (action.type) {
         case 'motion':
           return {
-            state: { ...state, pendingMotions: [...state.pendingMotions, action.motion], phase: { type: 'tracking' } },
+            state: { ...state, pendingMotions: [...state.pendingMotions, action], phase: { type: 'tracking' } },
             shouldEmit: false,
           };
+        case 'release':
+          return { state, shouldEmit: false };
         case 'tick':
           return { state, shouldEmit: false };
       }
@@ -192,6 +211,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
       },
       pendingMotions: [],
       phase: { type: 'settled' },
+      pendingRelease: false,
     };
 
     let lastTimestamp: number | null = null;
@@ -216,11 +236,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
     }
 
     // Subscribe to all interpreters
-    const unsubscribers = interpreters.map((interp) =>
-      interp.subscribe((motion: Motion) => {
-        dispatch({ type: 'motion', motion });
-      }),
-    );
+    const unsubscribers = interpreters.map((interp) => interp.subscribe(dispatch));
 
     // Start the loop
     rafId = requestAnimationFrame(loop);

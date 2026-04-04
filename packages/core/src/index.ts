@@ -3,6 +3,7 @@ export type {
   UnmountFn,
   Callback,
   Motion,
+  InterpreterEvent,
   State,
   MountedInterpreter,
   Interpreter,

@@ -1,4 +1,4 @@
-import type { Interpreter, MountedInterpreter, Callback, Motion, UnsubscribeFn } from '../types.js';
+import type { Interpreter, MountedInterpreter, Callback, InterpreterEvent, UnsubscribeFn } from '../types.js';
 
 // Pixels per wheel "line" unit (for deltaMode LINE)
 const LINE_HEIGHT = 16;
@@ -10,10 +10,10 @@ const SCALE_PER_PIXEL = 0.002;
 
 export function mouseWheelInterpreter(): Interpreter {
   return (element: Element): MountedInterpreter => {
-    const callbacks = new Set<Callback<Motion>>();
+    const callbacks = new Set<Callback<InterpreterEvent>>();
 
-    function emit(motion: Motion) {
-      for (const cb of callbacks) cb(motion);
+    function emit(event: InterpreterEvent) {
+      for (const cb of callbacks) cb(event);
     }
 
     function onWheel(e: WheelEvent) {
@@ -32,6 +32,7 @@ export function mouseWheelInterpreter(): Interpreter {
       const originY = e.clientY - rect.top;
 
       emit({
+        type: 'motion',
         dx: 0,
         dy: 0,
         dScale,
@@ -43,7 +44,7 @@ export function mouseWheelInterpreter(): Interpreter {
     element.addEventListener('wheel', onWheel as EventListener, { passive: false });
 
     return {
-      subscribe(cb: Callback<Motion>): UnsubscribeFn {
+      subscribe(cb: Callback<InterpreterEvent>): UnsubscribeFn {
         callbacks.add(cb);
         return () => callbacks.delete(cb);
       },

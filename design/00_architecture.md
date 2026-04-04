@@ -14,7 +14,7 @@ type UnmountFn = () => void;
 type Callback<T> = (value: T) => void;
 ```
 
-**Motion** is the output of an Interpreter and represents the relative change from the previous state. For pan gestures, use `dScale: 1` and `originX/Y: 0`.
+**Motion** is the motion payload used internally by the Store. It represents the relative change from the previous state. For pan gestures, use `dScale: 1` and `originX/Y: 0`.
 
 ```typescript
 type Motion = {
@@ -24,6 +24,14 @@ type Motion = {
   originX: number; // scale origin X, relative to the element's top-left corner (px)
   originY: number; // scale origin Y, relative to the element's top-left corner (px)
 };
+```
+
+**InterpreterEvent** is the output of an Interpreter. It is a tagged union that covers both gesture movement and the moment the user releases the gesture.
+
+```typescript
+type InterpreterEvent =
+  | ({ type: 'motion' } & Motion) // user is actively gesturing
+  | { type: 'release' };          // user lifted all fingers / released the mouse button
 ```
 
 **State** is the output of the Store and represents the current transform applied to the target element. Velocity information is kept as internal Store state and is not exposed.
@@ -48,14 +56,14 @@ The library consists of three primary modules:
 
 The role of this module is to abstract user input events such as TouchEvent and MouseEvent, and interpret them as meaningful actions such as zoom or pan. The module provides a state machine that takes these events as input.
 
-The Interpreter emits detected gesture information as **Motion**. Motion expresses transformations as relative changes from the previous state. Specific state transitions in the state machine trigger Motion generation. Motion is delivered to the outside world via a callback provided to the Interpreter.
+The Interpreter emits detected gesture information as **InterpreterEvent**. Motion events express transformations as relative changes from the previous state. A release event is emitted when the user lifts all fingers or releases the mouse button. Events are delivered to the outside world via a callback provided to the Interpreter.
 
 Key interfaces and functions:
 
 ```typescript
 type Interpreter = (element: Element) => MountedInterpreter;
 type MountedInterpreter = {
-  subscribe: (cb: Callback<Motion>) => UnsubscribeFn;
+  subscribe: (cb: Callback<InterpreterEvent>) => UnsubscribeFn;
   unmount: UnmountFn;
 };
 
@@ -83,15 +91,15 @@ With tagged unions, impossible states become inexpressible. For example, a `sing
 State transitions are implemented as a pure reducer:
 
 ```
-reduce(state, action) => { state, motion? }
+reduce(state, action) => { state, event? }
 ```
 
-where each `action` corresponds to a DOM event. Separating pure transition logic from side effects (event subscription, Motion emission) yields two practical benefits:
+where each `action` corresponds to a DOM event. Separating pure transition logic from side effects (event subscription, InterpreterEvent emission) yields two practical benefits:
 
-1. **Testability**: The reducer can be tested as a plain function with no DOM setup — pass a state and an action, assert on the returned state and motion.
+1. **Testability**: The reducer can be tested as a plain function with no DOM setup — pass a state and an action, assert on the returned state and event.
 2. **Traceability**: Every state change originates from a named action, making the flow of data easy to follow and debug.
 
-Side effects are confined to the thin `dispatch()` wrapper inside each interpreter factory, which calls `reduce`, updates the stored state, and emits Motion if one was returned.
+Side effects are confined to the thin `dispatch()` wrapper inside each interpreter factory, which calls `reduce`, updates the stored state, and emits the InterpreterEvent if one was returned.
 
 ## Store Module
 
@@ -119,7 +127,7 @@ Implementation details:
 
 - State transitions in the Store are written as reducers. The root reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: LinearPrimitive for translation and ExponentialPrimitive for scale. LinearPrimitive treats translation linearly, because the relationship between user input (e.g., drag distance) and translation is linear. ExponentialPrimitive treats scale exponentially, because scale is multiplicative in nature and an exponential representation provides a more natural feel during zoom in/out.
 - Velocity information (velocityX, velocityY, scaleVelocity) is held as internal Store state and is not included in State.
-- The Store supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour after inertia settles. When configured, the Store transitions through the following internal phases: **tracking** (motions being applied) → **inertia** (free velocity decay) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. Any new motion received while snapping resets the phase back to tracking.
+- The Store supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour. When configured, the Store transitions through the following internal phases: **tracking** (motions being applied) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. When a `release` event is received during tracking, the Store transitions to snapping immediately on the next animation frame, without waiting for inertia to settle. If no `release` event is received (e.g. from mouse wheel gestures that have no explicit release), inertia runs as normal and snapping begins once velocity decays below threshold. Any new motion received while snapping resets the phase back to tracking.
 
 ```typescript
 type SnapConfig = {
@@ -153,4 +161,4 @@ declare function createRenderer(): Renderer;
 
 ## Testing Policy
 
-Each module should be tested individually through unit tests. The Interpreter module requires tests to verify that correct Motion is generated from user input. The Store module requires tests to verify that correct state updates occur when Motion is received. The Renderer module requires tests to verify that correct CSS transforms are applied based on the Store's state.
+Each module should be tested individually through unit tests. The Interpreter module requires tests to verify that correct InterpreterEvents are emitted from user input, including both motion events and release events. The Store module requires tests to verify that correct state updates occur when events are received, including immediate snapping on release. The Renderer module requires tests to verify that correct CSS transforms are applied based on the Store's state.

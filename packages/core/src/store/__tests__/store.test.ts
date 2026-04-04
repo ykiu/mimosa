@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createStore } from '../index.js';
-import type { MountedInterpreter, Callback, Motion } from '../../types.js';
+import type { MountedInterpreter, Callback, Motion, InterpreterEvent } from '../../types.js';
 
-function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion) => void } {
-  const callbacks = new Set<Callback<Motion>>();
+function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion) => void; release: () => void } {
+  const callbacks = new Set<Callback<InterpreterEvent>>();
   return {
     emit(m: Motion) {
-      for (const cb of callbacks) cb(m);
+      for (const cb of callbacks) cb({ type: 'motion', ...m });
     },
-    subscribe(cb: Callback<Motion>) {
+    release() {
+      for (const cb of callbacks) cb({ type: 'release' });
+    },
+    subscribe(cb: Callback<InterpreterEvent>) {
       callbacks.add(cb);
       return () => callbacks.delete(cb);
     },
@@ -80,5 +83,35 @@ describe('createStore', () => {
     await vi.advanceTimersByTimeAsync(16);
 
     expect(states).toHaveLength(0);
+  });
+
+  it('starts snapping immediately on release without waiting for inertia to settle', async () => {
+    const interp = makeMockInterpreter();
+    // Snap x to nearest multiple of 100
+    const store = createStore({ snap: { x: (v) => Math.round(v / 100) * 100 } })([interp]);
+    const statesAfterRelease: { transformX: number }[] = [];
+
+    // Drag to x=60 (snap target would be 100) then give it velocity
+    interp.emit({ dx: 60, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+
+    // Apply the motions on the first tick
+    await vi.advanceTimersByTimeAsync(16);
+
+    // Release the drag — store should start snapping on next tick, not run inertia
+    interp.release();
+
+    store.subscribe((s) => statesAfterRelease.push(s as { transformX: number }));
+
+    // Advance a couple of frames
+    await vi.advanceTimersByTimeAsync(16);
+    await vi.advanceTimersByTimeAsync(16);
+
+    // Spring should be moving transformX toward snap target 100
+    expect(statesAfterRelease.length).toBeGreaterThan(0);
+    const last = statesAfterRelease[statesAfterRelease.length - 1];
+    expect(last.transformX).toBeGreaterThan(70); // moved toward snap target
+
+    store.unmount();
   });
 });

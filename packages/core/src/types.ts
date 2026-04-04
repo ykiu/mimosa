@@ -10,6 +10,8 @@ export type Motion = {
   originY: number;
 };
 
+export type InterpreterEvent = ({ type: 'motion' } & Motion) | { type: 'release' };
+
 export type State = {
   transformX: number;
   transformY: number;
@@ -17,7 +19,7 @@ export type State = {
 };
 
 export type MountedInterpreter = {
-  subscribe: (cb: Callback<Motion>) => UnsubscribeFn;
+  subscribe: (cb: Callback<InterpreterEvent>) => UnsubscribeFn;
   unmount: UnmountFn;
 };
 

@@ -1,4 +1,4 @@
-import type { Interpreter, MountedInterpreter, Callback, Motion, UnsubscribeFn } from '../types.js';
+import type { Interpreter, MountedInterpreter, Callback, InterpreterEvent, UnsubscribeFn } from '../types.js';
 
 type TouchPoint = { x: number; y: number };
 
@@ -13,7 +13,7 @@ type TouchAction =
   | { type: 'touchend'; points: TouchPoint[] }
   | { type: 'touchcancel'; points: TouchPoint[] };
 
-type ReducerResult = { state: TouchState; motion?: Motion };
+type ReducerResult = { state: TouchState; event?: InterpreterEvent };
 
 function getDistance(a: TouchPoint, b: TouchPoint): number {
   const dx = a.x - b.x;
@@ -49,9 +49,12 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
     case 'single_touch':
       switch (action.type) {
         case 'touchstart':
-        case 'touchend':
-        case 'touchcancel':
           return { state: stateFromPoints(action.points) };
+        case 'touchend':
+        case 'touchcancel': {
+          const newState = stateFromPoints(action.points);
+          return { state: newState, event: newState.type === 'no_touch' ? { type: 'release' } : undefined };
+        }
         case 'touchmove': {
           if (action.points.length !== 1) {
             return { state: stateFromPoints(action.points) };
@@ -59,7 +62,8 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
           const curr = action.points[0];
           return {
             state: { type: 'single_touch', point: curr },
-            motion: {
+            event: {
+              type: 'motion',
               dx: curr.x - state.point.x,
               dy: curr.y - state.point.y,
               dScale: 1,
@@ -73,9 +77,12 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
     case 'multi_touch':
       switch (action.type) {
         case 'touchstart':
-        case 'touchend':
-        case 'touchcancel':
           return { state: stateFromPoints(action.points) };
+        case 'touchend':
+        case 'touchcancel': {
+          const newState = stateFromPoints(action.points);
+          return { state: newState, event: newState.type === 'no_touch' ? { type: 'release' } : undefined };
+        }
         case 'touchmove': {
           if (action.points.length < 2) {
             return { state: stateFromPoints(action.points) };
@@ -89,7 +96,8 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
           const dScale = prevDist === 0 ? 1 : currDist / prevDist;
           return {
             state: { type: 'multi_touch', points: [curr0, curr1] },
-            motion: {
+            event: {
+              type: 'motion',
               dx: currMid.x - prevMid.x,
               dy: currMid.y - prevMid.y,
               dScale,
@@ -104,14 +112,14 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
 
 export function touchInterpreter(): Interpreter {
   return (element: Element): MountedInterpreter => {
-    const callbacks = new Set<Callback<Motion>>();
+    const callbacks = new Set<Callback<InterpreterEvent>>();
     let state: TouchState = { type: 'no_touch' };
 
     function dispatch(action: TouchAction) {
       const result = reduce(state, action);
       state = result.state;
-      if (result.motion) {
-        for (const cb of callbacks) cb(result.motion);
+      if (result.event) {
+        for (const cb of callbacks) cb(result.event);
       }
     }
 
@@ -142,7 +150,7 @@ export function touchInterpreter(): Interpreter {
     element.addEventListener('touchcancel', onTouchCancel as EventListener, { passive: true });
 
     return {
-      subscribe(cb: Callback<Motion>): UnsubscribeFn {
+      subscribe(cb: Callback<InterpreterEvent>): UnsubscribeFn {
         callbacks.add(cb);
         return () => callbacks.delete(cb);
       },
