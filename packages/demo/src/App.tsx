@@ -3,7 +3,7 @@ import { PinchPanContainer } from './PinchPanContainer.js';
 import { CarouselContainer } from './CarouselContainer.js';
 
 const IMAGE_URL =
-  'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png';
+  'https://picsum.photos/id/599/400/300';
 
 const CAROUSEL_ITEMS = [
   { label: 'Item 1', bg: 'bg-indigo-600' },
