@@ -36,52 +36,69 @@ function stateFromPoints(points: TouchPoint[]): TouchState {
 }
 
 function reduce(state: TouchState, action: TouchAction): ReducerResult {
-  switch (action.type) {
-    case 'touchstart':
-    case 'touchend':
-    case 'touchcancel':
-      return { state: stateFromPoints(action.points) };
-
-    case 'touchmove': {
-      const { points: currPoints, elementRect } = action;
-
-      if (state.type === 'single_touch' && currPoints.length === 1) {
-        const curr = currPoints[0];
-        return {
-          state: { type: 'single_touch', point: curr },
-          motion: {
-            dx: curr.x - state.point.x,
-            dy: curr.y - state.point.y,
-            dScale: 1,
-            originX: 0,
-            originY: 0,
-          },
-        };
+  switch (state.type) {
+    case 'no_touch':
+      switch (action.type) {
+        case 'touchstart':
+        case 'touchend':
+        case 'touchcancel':
+        case 'touchmove':
+          return { state: stateFromPoints(action.points) };
       }
 
-      if (state.type === 'multi_touch' && currPoints.length >= 2) {
-        const [curr0, curr1] = currPoints;
-        const [prev0, prev1] = state.points;
-        const currMid = getMidpoint(curr0, curr1);
-        const prevMid = getMidpoint(prev0, prev1);
-        const currDist = getDistance(curr0, curr1);
-        const prevDist = getDistance(prev0, prev1);
-        const dScale = prevDist === 0 ? 1 : currDist / prevDist;
-        return {
-          state: { type: 'multi_touch', points: [curr0, curr1] },
-          motion: {
-            dx: currMid.x - prevMid.x,
-            dy: currMid.y - prevMid.y,
-            dScale,
-            originX: currMid.x - elementRect.left,
-            originY: currMid.y - elementRect.top,
-          },
-        };
+    case 'single_touch':
+      switch (action.type) {
+        case 'touchstart':
+        case 'touchend':
+        case 'touchcancel':
+          return { state: stateFromPoints(action.points) };
+        case 'touchmove': {
+          if (action.points.length !== 1) {
+            return { state: stateFromPoints(action.points) };
+          }
+          const curr = action.points[0];
+          return {
+            state: { type: 'single_touch', point: curr },
+            motion: {
+              dx: curr.x - state.point.x,
+              dy: curr.y - state.point.y,
+              dScale: 1,
+              originX: 0,
+              originY: 0,
+            },
+          };
+        }
       }
 
-      // Finger count doesn't match current state — update state without emitting motion
-      return { state: stateFromPoints(currPoints) };
-    }
+    case 'multi_touch':
+      switch (action.type) {
+        case 'touchstart':
+        case 'touchend':
+        case 'touchcancel':
+          return { state: stateFromPoints(action.points) };
+        case 'touchmove': {
+          if (action.points.length < 2) {
+            return { state: stateFromPoints(action.points) };
+          }
+          const [curr0, curr1] = action.points;
+          const [prev0, prev1] = state.points;
+          const currMid = getMidpoint(curr0, curr1);
+          const prevMid = getMidpoint(prev0, prev1);
+          const currDist = getDistance(curr0, curr1);
+          const prevDist = getDistance(prev0, prev1);
+          const dScale = prevDist === 0 ? 1 : currDist / prevDist;
+          return {
+            state: { type: 'multi_touch', points: [curr0, curr1] },
+            motion: {
+              dx: currMid.x - prevMid.x,
+              dy: currMid.y - prevMid.y,
+              dScale,
+              originX: currMid.x - action.elementRect.left,
+              originY: currMid.y - action.elementRect.top,
+            },
+          };
+        }
+      }
   }
 }
 

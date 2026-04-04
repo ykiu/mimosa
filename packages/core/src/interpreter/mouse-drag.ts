@@ -12,25 +12,34 @@ type MouseDragAction =
 type ReducerResult = { state: MouseDragState; motion?: Motion };
 
 function reduce(state: MouseDragState, action: MouseDragAction): ReducerResult {
-  switch (action.type) {
-    case 'mousedown':
-      return { state: { type: 'dragging', prevX: action.x, prevY: action.y } };
+  switch (state.type) {
+    case 'idle':
+      switch (action.type) {
+        case 'mousedown':
+          return { state: { type: 'dragging', prevX: action.x, prevY: action.y } };
+        case 'mousemove':
+        case 'mouseup':
+          return { state };
+      }
 
-    case 'mousemove':
-      if (state.type !== 'dragging') return { state };
-      return {
-        state: { type: 'dragging', prevX: action.x, prevY: action.y },
-        motion: {
-          dx: action.x - state.prevX,
-          dy: action.y - state.prevY,
-          dScale: 1,
-          originX: 0,
-          originY: 0,
-        },
-      };
-
-    case 'mouseup':
-      return { state: { type: 'idle' } };
+    case 'dragging':
+      switch (action.type) {
+        case 'mousedown':
+          return { state: { type: 'dragging', prevX: action.x, prevY: action.y } };
+        case 'mousemove':
+          return {
+            state: { type: 'dragging', prevX: action.x, prevY: action.y },
+            motion: {
+              dx: action.x - state.prevX,
+              dy: action.y - state.prevY,
+              dScale: 1,
+              originX: 0,
+              originY: 0,
+            },
+          };
+        case 'mouseup':
+          return { state: { type: 'idle' } };
+      }
   }
 }
 
