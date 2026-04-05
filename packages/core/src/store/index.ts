@@ -139,42 +139,7 @@ function createReduce(snap?: SnapConfig): Reducer {
             };
           }
           case "tick": {
-            if (hasSignificantVelocity(state.transform)) {
-              // Transition to inertia without advancing yet — inertia advances from the next tick.
-              return {
-                state: { ...state, type: "inertia" },
-                shouldEmit: false,
-              };
-            }
-            if (snap) {
-              const target = computeSnapTarget(snap, state.transform);
-              const gapX = Math.abs(target.x - state.transform.x.value);
-              const gapY = Math.abs(target.y - state.transform.y.value);
-              if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
-                const transform = {
-                  ...state.transform,
-                  x: {
-                    value: target.x,
-                    velocity: 0,
-                    lastUpdatedAt: action.timestamp,
-                  },
-                  y: {
-                    value: target.y,
-                    velocity: 0,
-                    lastUpdatedAt: action.timestamp,
-                  },
-                };
-                return {
-                  state: { type: "settled", transform },
-                  shouldEmit: true,
-                };
-              }
-              return {
-                state: { ...state, type: "snapping", target },
-                shouldEmit: false,
-              };
-            }
-            return { state: { ...state, type: "settled" }, shouldEmit: false };
+            return { state, shouldEmit: false };
           }
         }
       }
@@ -343,7 +308,9 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
 
     function loop(timestamp: number) {
       if (!mounted) return;
-      for (const motion of pendingEvents) state = reduce(state, motion).state;
+      for (const motion of pendingEvents) {
+        state = reduce(state, motion).state;
+      }
       const tickResult = reduce(state, { type: "tick", timestamp });
       state = tickResult.state;
       if (pendingEvents.length > 0 || tickResult.shouldEmit) {
