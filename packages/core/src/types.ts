@@ -2,15 +2,17 @@ export type UnsubscribeFn = () => void;
 export type UnmountFn = () => void;
 export type Callback<T> = (value: T) => void;
 
-export type Motion = {
-  dx: number;
-  dy: number;
-  dScale: number;
-  originX: number;
-  originY: number;
-};
-
-export type InterpreterEvent = ({ type: 'motion'; timestamp: number } & Motion) | { type: 'release' };
+export type InterpreterEvent =
+  | {
+      type: "motion";
+      dx: number;
+      dy: number;
+      dScale: number;
+      originX: number;
+      originY: number;
+      timestamp: number;
+    }
+  | { type: "release" };
 
 export type State = {
   transformX: number;
@@ -36,7 +38,10 @@ export type MountedRenderer = {
   unmount: UnmountFn;
 };
 
-export type Renderer = (element: Element, store: MountedStore) => MountedRenderer;
+export type Renderer = (
+  element: Element,
+  store: MountedStore,
+) => MountedRenderer;
 
 export type SnapConfig = {
   x?: (value: number) => number;

@@ -3,21 +3,16 @@ import { createStore } from "../index.js";
 import type {
   MountedInterpreter,
   Callback,
-  Motion,
   InterpreterEvent,
 } from "../../types.js";
 
 function makeMockInterpreter(): MountedInterpreter & {
-  emit: (m: Motion, timestamp?: number) => void;
-  release: () => void;
+  emit: (event: InterpreterEvent) => void;
 } {
   const callbacks = new Set<Callback<InterpreterEvent>>();
   return {
-    emit(m: Motion, timestamp = 0) {
-      for (const cb of callbacks) cb({ type: "motion", timestamp, ...m });
-    },
-    release() {
-      for (const cb of callbacks) cb({ type: "release" });
+    emit(event: InterpreterEvent) {
+      for (const cb of callbacks) cb(event);
     },
     subscribe(cb: Callback<InterpreterEvent>) {
       callbacks.add(cb);
@@ -42,7 +37,7 @@ describe("createStore", () => {
     const states: unknown[] = [];
     store.subscribe((s) => states.push(s));
 
-    interp.emit({ dx: 50, dy: 30, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 30, dScale: 1, originX: 0, originY: 0 });
 
     // Advance one animation frame (16ms)
     await vi.advanceTimersByTimeAsync(16);
@@ -67,7 +62,7 @@ describe("createStore", () => {
     // Zoom in 2x at origin (100, 100) with current transform at (0, 0)
     // newTx = 100 + (0 - 100) * 2 + 0 = 100 - 200 = -100
     // newTy = 100 + (0 - 100) * 2 + 0 = -100
-    interp.emit({ dx: 0, dy: 0, dScale: 2, originX: 100, originY: 100 });
+    interp.emit({ type: "motion", timestamp: 0, dx: 0, dy: 0, dScale: 2, originX: 100, originY: 100 });
 
     await vi.advanceTimersByTimeAsync(16);
 
@@ -90,7 +85,7 @@ describe("createStore", () => {
     store.subscribe((s) => states.push(s));
 
     store.unmount();
-    interp.emit({ dx: 50, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 0, dScale: 1, originX: 0, originY: 0 });
     await vi.advanceTimersByTimeAsync(16);
 
     expect(states).toHaveLength(0);
@@ -105,14 +100,14 @@ describe("createStore", () => {
     const statesAfterRelease: { transformX: number }[] = [];
 
     // Drag to x=60 (snap target would be 100) then give it velocity
-    interp.emit({ dx: 60, dy: 0, dScale: 1, originX: 0, originY: 0 });
-    interp.emit({ dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ type: "motion", timestamp: 0, dx: 60, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
 
     // Apply the motions on the first tick
     await vi.advanceTimersByTimeAsync(16);
 
     // Release the drag — store should start snapping on next tick, not run inertia
-    interp.release();
+    interp.emit({ type: "release" });
 
     store.subscribe((s) =>
       statesAfterRelease.push(s as { transformX: number }),

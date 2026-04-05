@@ -2,7 +2,6 @@ export type {
   UnsubscribeFn,
   UnmountFn,
   Callback,
-  Motion,
   InterpreterEvent,
   State,
   MountedInterpreter,
@@ -12,8 +11,12 @@ export type {
   MountedRenderer,
   Renderer,
   SnapConfig,
-} from './types.js';
+} from "./types.js";
 
-export { touchInterpreter, mouseDragInterpreter, mouseWheelInterpreter } from './interpreter/index.js';
-export { createStore } from './store/index.js';
-export { createRenderer } from './renderer/index.js';
+export {
+  touchInterpreter,
+  mouseDragInterpreter,
+  mouseWheelInterpreter,
+} from "./interpreter/index.js";
+export { createStore } from "./store/index.js";
+export { createRenderer } from "./renderer/index.js";
