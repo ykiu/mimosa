@@ -7,7 +7,7 @@ import type {
   Callback,
   UnsubscribeFn,
   SnapConfig,
-} from '../types.js';
+} from "../types.js";
 import {
   LinearPrimitive,
   ExponentialPrimitive,
@@ -18,7 +18,7 @@ import {
   advanceLinearInertia,
   advanceExponentialInertia,
   advanceLinearSpring,
-} from './primitives.js';
+} from "./primitives.js";
 
 type Transform = {
   x: LinearPrimitive;
@@ -26,21 +26,20 @@ type Transform = {
   scale: ExponentialPrimitive;
 };
 
-type Phase =
-  | { type: 'tracking' }
-  | { type: 'inertia' }
-  | { type: 'snapping'; target: { x: number; y: number } }
-  | { type: 'settled' };
+type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
 
-type MotionEvent = Extract<InterpreterEvent, { type: 'motion' }>;
+type StoreState =
+  | { type: "tracking"; transform: Transform; pendingRelease: boolean }
+  | { type: "inertia"; transform: Transform; pendingRelease: boolean }
+  | {
+      type: "snapping";
+      transform: Transform;
+      pendingRelease: boolean;
+      target: { x: number; y: number };
+    }
+  | { type: "settled"; transform: Transform; pendingRelease: boolean };
 
-type StoreState = {
-  transform: Transform;
-  phase: Phase;
-  pendingRelease: boolean;
-};
-
-type StoreAction = InterpreterEvent | { type: 'tick'; timestamp: number };
+type StoreAction = InterpreterEvent | { type: "tick"; timestamp: number };
 
 type ReducerResult = { state: StoreState; shouldEmit: boolean };
 
@@ -94,35 +93,60 @@ function hasSignificantVelocity(transform: Transform): boolean {
   );
 }
 
-function computeSnapTarget(snap: SnapConfig, transform: Transform): { x: number; y: number } {
+function computeSnapTarget(
+  snap: SnapConfig,
+  transform: Transform,
+): { x: number; y: number } {
   return {
     x: snap.x ? snap.x(transform.x.value) : transform.x.value,
     y: snap.y ? snap.y(transform.y.value) : transform.y.value,
   };
 }
 
-function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): ReducerResult {
-  switch (state.phase.type) {
-    case 'tracking': {
+function reduce(
+  state: StoreState,
+  action: StoreAction,
+  snap?: SnapConfig,
+): ReducerResult {
+  switch (state.type) {
+    case "tracking": {
       switch (action.type) {
-        case 'motion':
+        case "motion":
           return {
-            state: { ...state, transform: applyMotion(state.transform, action), phase: { type: 'tracking' } },
+            state: {
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
+            },
             shouldEmit: false,
           };
-        case 'release':
-          return { state: { ...state, pendingRelease: true }, shouldEmit: false };
-        case 'tick': {
+        case "release":
+          return {
+            state: { ...state, pendingRelease: true },
+            shouldEmit: false,
+          };
+        case "tick": {
           if (state.pendingRelease) {
             if (snap) {
               const target = computeSnapTarget(snap, state.transform);
-              return { state: { ...state, phase: { type: 'snapping', target }, pendingRelease: false }, shouldEmit: false };
+              return {
+                state: {
+                  ...state,
+                  type: "snapping",
+                  target,
+                  pendingRelease: false,
+                },
+                shouldEmit: false,
+              };
             }
-            return { state: { ...state, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: false };
+            return {
+              state: { ...state, type: "settled", pendingRelease: false },
+              shouldEmit: false,
+            };
           }
           if (hasSignificantVelocity(state.transform)) {
             // Transition to inertia without advancing yet — inertia advances from the next tick.
-            return { state: { ...state, phase: { type: 'inertia' } }, shouldEmit: false };
+            return { state: { ...state, type: "inertia" }, shouldEmit: false };
           }
           if (snap) {
             const target = computeSnapTarget(snap, state.transform);
@@ -131,37 +155,73 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
             if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
               const transform = {
                 ...state.transform,
-                x: { value: target.x, velocity: 0, lastUpdatedAt: action.timestamp },
-                y: { value: target.y, velocity: 0, lastUpdatedAt: action.timestamp },
+                x: {
+                  value: target.x,
+                  velocity: 0,
+                  lastUpdatedAt: action.timestamp,
+                },
+                y: {
+                  value: target.y,
+                  velocity: 0,
+                  lastUpdatedAt: action.timestamp,
+                },
               };
-              return { state: { transform, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
+              return {
+                state: { type: "settled", transform, pendingRelease: false },
+                shouldEmit: true,
+              };
             }
-            return { state: { ...state, phase: { type: 'snapping', target } }, shouldEmit: false };
+            return {
+              state: { ...state, type: "snapping", target },
+              shouldEmit: false,
+            };
           }
-          return { state: { ...state, phase: { type: 'settled' } }, shouldEmit: false };
+          return { state: { ...state, type: "settled" }, shouldEmit: false };
         }
       }
     }
-    case 'inertia': {
+    case "inertia": {
       switch (action.type) {
-        case 'motion':
+        case "motion":
           return {
-            state: { ...state, transform: applyMotion(state.transform, action), phase: { type: 'tracking' } },
+            state: {
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
+            },
             shouldEmit: false,
           };
-        case 'release':
-          return { state: { ...state, pendingRelease: true }, shouldEmit: false };
-        case 'tick': {
+        case "release":
+          return {
+            state: { ...state, pendingRelease: true },
+            shouldEmit: false,
+          };
+        case "tick": {
           if (state.pendingRelease) {
             if (snap) {
               const target = computeSnapTarget(snap, state.transform);
-              return { state: { ...state, phase: { type: 'snapping', target }, pendingRelease: false }, shouldEmit: false };
+              return {
+                state: {
+                  ...state,
+                  type: "snapping",
+                  target,
+                  pendingRelease: false,
+                },
+                shouldEmit: false,
+              };
             }
-            return { state: { ...state, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: false };
+            return {
+              state: { ...state, type: "settled", pendingRelease: false },
+              shouldEmit: false,
+            };
           }
           if (hasSignificantVelocity(state.transform)) {
             return {
-              state: { ...state, transform: advanceInertia(state.transform, action.timestamp), phase: { type: 'inertia' } },
+              state: {
+                ...state,
+                type: "inertia",
+                transform: advanceInertia(state.transform, action.timestamp),
+              },
               shouldEmit: true,
             };
           }
@@ -172,54 +232,98 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
             if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
               const transform = {
                 ...state.transform,
-                x: { value: target.x, velocity: 0, lastUpdatedAt: action.timestamp },
-                y: { value: target.y, velocity: 0, lastUpdatedAt: action.timestamp },
+                x: {
+                  value: target.x,
+                  velocity: 0,
+                  lastUpdatedAt: action.timestamp,
+                },
+                y: {
+                  value: target.y,
+                  velocity: 0,
+                  lastUpdatedAt: action.timestamp,
+                },
               };
-              return { state: { transform, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
+              return {
+                state: { type: "settled", transform, pendingRelease: false },
+                shouldEmit: true,
+              };
             }
-            return { state: { ...state, phase: { type: 'snapping', target } }, shouldEmit: false };
+            return {
+              state: { ...state, type: "snapping", target },
+              shouldEmit: false,
+            };
           }
-          return { state: { ...state, phase: { type: 'settled' } }, shouldEmit: false };
+          return { state: { ...state, type: "settled" }, shouldEmit: false };
         }
       }
     }
-    case 'snapping': {
+    case "snapping": {
       switch (action.type) {
-        case 'motion':
+        case "motion":
           return {
-            state: { ...state, transform: applyMotion(state.transform, action), phase: { type: 'tracking' } },
+            state: {
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
+            },
             shouldEmit: false,
           };
-        case 'release':
+        case "release":
           return { state, shouldEmit: false };
-        case 'tick': {
-          const { target } = state.phase;
+        case "tick": {
+          const { target } = state;
           const gapX = Math.abs(target.x - state.transform.x.value);
           const gapY = Math.abs(target.y - state.transform.y.value);
           if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
             const transform = {
               ...state.transform,
-              x: { value: target.x, velocity: 0, lastUpdatedAt: action.timestamp },
-              y: { value: target.y, velocity: 0, lastUpdatedAt: action.timestamp },
+              x: {
+                value: target.x,
+                velocity: 0,
+                lastUpdatedAt: action.timestamp,
+              },
+              y: {
+                value: target.y,
+                velocity: 0,
+                lastUpdatedAt: action.timestamp,
+              },
             };
-            return { state: { transform, phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
+            return {
+              state: { type: "settled", transform, pendingRelease: false },
+              shouldEmit: true,
+            };
           }
-          const x = advanceLinearSpring(state.transform.x, target.x, action.timestamp);
-          const y = advanceLinearSpring(state.transform.y, target.y, action.timestamp);
-          return { state: { ...state, transform: { ...state.transform, x, y } }, shouldEmit: true };
+          const x = advanceLinearSpring(
+            state.transform.x,
+            target.x,
+            action.timestamp,
+          );
+          const y = advanceLinearSpring(
+            state.transform.y,
+            target.y,
+            action.timestamp,
+          );
+          return {
+            state: { ...state, transform: { ...state.transform, x, y } },
+            shouldEmit: true,
+          };
         }
       }
     }
-    case 'settled': {
+    case "settled": {
       switch (action.type) {
-        case 'motion':
+        case "motion":
           return {
-            state: { ...state, transform: applyMotion(state.transform, action), phase: { type: 'tracking' } },
+            state: {
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
+            },
             shouldEmit: false,
           };
-        case 'release':
+        case "release":
           return { state, shouldEmit: false };
-        case 'tick':
+        case "tick":
           return { state, shouldEmit: false };
       }
     }
@@ -231,12 +335,12 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
     const callbacks = new Set<Callback<State>>();
 
     let state: StoreState = {
+      type: "settled",
       transform: {
         x: createLinearPrimitive(0),
         y: createLinearPrimitive(0),
         scale: createExponentialPrimitive(1),
       },
-      phase: { type: 'settled' },
       pendingRelease: false,
     };
 
@@ -244,7 +348,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
     let rafId: number | null = null;
     let mounted = true;
 
-    function dispatch(action: Extract<StoreAction, { type: 'release' }>) {
+    function dispatch(action: Extract<StoreAction, { type: "release" }>) {
       const result = reduce(state, action, options?.snap);
       state = result.state;
     }
@@ -256,7 +360,11 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
       for (const motion of motions) {
         state = reduce(state, motion, options?.snap).state;
       }
-      const tickResult = reduce(state, { type: 'tick', timestamp }, options?.snap);
+      const tickResult = reduce(
+        state,
+        { type: "tick", timestamp },
+        options?.snap,
+      );
       state = tickResult.state;
       if (motions.length > 0 || tickResult.shouldEmit) {
         const publicState = toPublicState(state.transform);
@@ -268,7 +376,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((event) => {
-        if (event.type === 'motion') {
+        if (event.type === "motion") {
           pendingMotions.push(event);
         } else {
           dispatch(event);
