@@ -30,9 +30,11 @@ type Motion = {
 
 ```typescript
 type InterpreterEvent =
-  | ({ type: 'motion' } & Motion) // user is actively gesturing
-  | { type: 'release' };          // user lifted all fingers / released the mouse button
+  | ({ type: 'motion'; timestamp: number } & Motion) // user is actively gesturing
+  | { type: 'release' };                             // user lifted all fingers / released the mouse button
 ```
+
+The `timestamp` on motion events is taken from the originating DOM event (`e.timeStamp`) and is used by the Store to compute accurate time deltas for velocity tracking.
 
 **State** is the output of the Store and represents the current transform applied to the target element. Velocity information is kept as internal Store state and is not exposed.
 
@@ -105,9 +107,9 @@ Side effects are confined to the thin `dispatch()` wrapper inside each interpret
 
 The Store module takes Motion from the Interpreter as input and manages the state of transformations applied to the target element. The Store holds the transform that should be applied to the target element. It also tracks the rate of change computed from the delta between the current and previous states, for use in inertia simulation. For example, if the transform is 40 px at one moment and 50 px 16 ms later, the rate of change is computed as 10 px / 16 ms.
 
-The Store has a continuous update loop driven by requestAnimationFrame(). It queues Motion received between loop iterations and processes them on the next iteration. If no Motion has been received since the last loop, the Store updates the transform for inertia simulation by exponentially decaying the rate of change.
+The Store has a continuous update loop driven by requestAnimationFrame(). Motion events received from Interpreters are applied to the Store's state. The tick action advances inertia or spring animation when no motion is active.
 
-The Store's update loop runs continuously and does not stop under normal circumstances. As an optimization, pausing the loop when there are no significant changes is permitted, but this must be treated as an implementation detail of the Store module — other modules must not depend on this behavior.
+The Store's update loop runs continuously and emits state to subscribers on every frame. As an optimization, pausing the loop when there are no significant changes is permitted, but this must be treated as an implementation detail of the Store module — other modules must not depend on this behavior.
 
 The Store notifies state changes via callbacks.
 
@@ -125,9 +127,11 @@ Mounting the `MountedInterpreter[]` passed to the Store (i.e., calling the Inter
 
 Implementation details:
 
-- State transitions in the Store are written as reducers. The root reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: LinearPrimitive for translation and ExponentialPrimitive for scale. LinearPrimitive treats translation linearly, because the relationship between user input (e.g., drag distance) and translation is linear. ExponentialPrimitive treats scale exponentially, because scale is multiplicative in nature and an exponential representation provides a more natural feel during zoom in/out.
-- Velocity information (velocityX, velocityY, scaleVelocity) is held as internal Store state and is not included in State.
-- The Store supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour. When configured, the Store transitions through the following internal phases: **tracking** (motions being applied) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. When a `release` event is received during tracking, the Store transitions to snapping immediately on the next animation frame, without waiting for inertia to settle. If no `release` event is received (e.g. from mouse wheel gestures that have no explicit release), inertia runs as normal and snapping begins once velocity decays below threshold. Any new motion received while snapping resets the phase back to tracking.
+- `StoreState` is a tagged union with `type` as the discriminant. The four variants are: `tracking`, `inertia`, `snapping`, and `settled`.
+- State transitions in the Store are written as a reducer created by `createReduce(snap?)`. This higher-order function captures the optional snap configuration and returns a `(state, action) => state` reducer. `StoreAction` is either an `InterpreterEvent` (emitted by Interpreters) or `{ type: 'tick'; timestamp: number }` (emitted each animation frame).
+- The root reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: `LinearPrimitive` for translation and `ExponentialPrimitive` for scale. Both carry a `lastUpdatedAt: number` field (NaN when never updated). All primitive update functions accept a `timestamp` and compute `dtMs` internally. LinearPrimitive treats translation linearly; ExponentialPrimitive treats scale exponentially for a more natural pinch-to-zoom feel.
+- Velocity information is held inside the ValuePrimitives as internal Store state and is not included in the public `State`.
+- The Store supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour. When configured, the Store transitions through the following internal phases: **tracking** (motions being applied) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. When a `release` event is received in the `tracking` or `inertia` state, the Store transitions to `snapping` immediately. If no `release` event is received (e.g. from mouse wheel gestures that have no explicit release), inertia runs as normal and snapping begins once velocity decays below threshold. Any new motion received while snapping resets the phase back to `tracking`.
 
 ```typescript
 type SnapConfig = {
