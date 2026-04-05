@@ -1,15 +1,23 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createStore } from '../index.js';
-import type { MountedInterpreter, Callback, Motion, InterpreterEvent } from '../../types.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createStore } from "../index.js";
+import type {
+  MountedInterpreter,
+  Callback,
+  Motion,
+  InterpreterEvent,
+} from "../../types.js";
 
-function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion, timestamp?: number) => void; release: () => void } {
+function makeMockInterpreter(): MountedInterpreter & {
+  emit: (m: Motion, timestamp?: number) => void;
+  release: () => void;
+} {
   const callbacks = new Set<Callback<InterpreterEvent>>();
   return {
     emit(m: Motion, timestamp = 0) {
-      for (const cb of callbacks) cb({ type: 'motion', timestamp, ...m });
+      for (const cb of callbacks) cb({ type: "motion", timestamp, ...m });
     },
     release() {
-      for (const cb of callbacks) cb({ type: 'release' });
+      for (const cb of callbacks) cb({ type: "release" });
     },
     subscribe(cb: Callback<InterpreterEvent>) {
       callbacks.add(cb);
@@ -19,7 +27,7 @@ function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion, timesta
   };
 }
 
-describe('createStore', () => {
+describe("createStore", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -28,7 +36,7 @@ describe('createStore', () => {
     vi.useRealTimers();
   });
 
-  it('notifies subscribers on next rAF after motion', async () => {
+  it("notifies subscribers on next rAF after motion", async () => {
     const interp = makeMockInterpreter();
     const store = createStore()([interp]);
     const states: unknown[] = [];
@@ -40,14 +48,17 @@ describe('createStore', () => {
     await vi.advanceTimersByTimeAsync(16);
 
     expect(states.length).toBeGreaterThan(0);
-    const last = states[states.length - 1] as { transformX: number; transformY: number };
+    const last = states[states.length - 1] as {
+      transformX: number;
+      transformY: number;
+    };
     expect(last.transformX).toBeCloseTo(50);
     expect(last.transformY).toBeCloseTo(30);
 
     store.unmount();
   });
 
-  it('adjusts translation for scale origin', async () => {
+  it("adjusts translation for scale origin", async () => {
     const interp = makeMockInterpreter();
     const store = createStore()([interp]);
     const states: unknown[] = [];
@@ -72,7 +83,7 @@ describe('createStore', () => {
     store.unmount();
   });
 
-  it('stops notifying after unmount', async () => {
+  it("stops notifying after unmount", async () => {
     const interp = makeMockInterpreter();
     const store = createStore()([interp]);
     const states: unknown[] = [];
@@ -85,10 +96,12 @@ describe('createStore', () => {
     expect(states).toHaveLength(0);
   });
 
-  it('starts snapping immediately on release without waiting for inertia to settle', async () => {
+  it("starts snapping immediately on release without waiting for inertia to settle", async () => {
     const interp = makeMockInterpreter();
     // Snap x to nearest multiple of 100
-    const store = createStore({ snap: { x: (v) => Math.round(v / 100) * 100 } })([interp]);
+    const store = createStore({
+      snap: { x: (v) => Math.round(v / 100) * 100 },
+    })([interp]);
     const statesAfterRelease: { transformX: number }[] = [];
 
     // Drag to x=60 (snap target would be 100) then give it velocity
@@ -101,7 +114,9 @@ describe('createStore', () => {
     // Release the drag — store should start snapping on next tick, not run inertia
     interp.release();
 
-    store.subscribe((s) => statesAfterRelease.push(s as { transformX: number }));
+    store.subscribe((s) =>
+      statesAfterRelease.push(s as { transformX: number }),
+    );
 
     // Advance a couple of frames
     await vi.advanceTimersByTimeAsync(16);
