@@ -40,9 +40,7 @@ type StoreState =
 
 type StoreAction = InterpreterEvent | { type: "tick"; timestamp: number };
 
-type ReducerResult = { state: StoreState; shouldEmit: boolean };
-
-type Reducer = (state: StoreState, action: StoreAction) => ReducerResult;
+type Reducer = (state: StoreState, action: StoreAction) => StoreState;
 
 const SNAP_THRESHOLD = 0.5; // px
 
@@ -105,41 +103,29 @@ function computeSnapTarget(
 }
 
 function createReduce(snap?: SnapConfig): Reducer {
-  return function reduce(
-    state: StoreState,
-    action: StoreAction,
-  ): ReducerResult {
+  return function reduce(state: StoreState, action: StoreAction): StoreState {
     switch (state.type) {
       case "tracking": {
         switch (action.type) {
           case "motion":
             return {
-              state: {
-                ...state,
-                type: "tracking",
-                transform: applyMotion(state.transform, action),
-              },
-              shouldEmit: false,
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
             };
           case "release": {
             if (snap) {
               const target = computeSnapTarget(snap, state.transform);
               return {
-                state: {
-                  ...state,
-                  type: "snapping",
-                  target,
-                },
-                shouldEmit: false,
+                ...state,
+                type: "snapping",
+                target,
               };
             }
-            return {
-              state: { ...state, type: "inertia" },
-              shouldEmit: false,
-            };
+            return { ...state, type: "inertia" };
           }
           case "tick": {
-            return { state, shouldEmit: false };
+            return state;
           }
         }
       }
@@ -147,39 +133,27 @@ function createReduce(snap?: SnapConfig): Reducer {
         switch (action.type) {
           case "motion":
             return {
-              state: {
-                ...state,
-                type: "tracking",
-                transform: applyMotion(state.transform, action),
-              },
-              shouldEmit: false,
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
             };
           case "release": {
             if (snap) {
               const target = computeSnapTarget(snap, state.transform);
               return {
-                state: {
-                  ...state,
-                  type: "snapping",
-                  target,
-                },
-                shouldEmit: false,
+                ...state,
+                type: "snapping",
+                target,
               };
             }
-            return {
-              state: { ...state, type: "settled" },
-              shouldEmit: false,
-            };
+            return { ...state, type: "settled" };
           }
           case "tick": {
             if (hasSignificantVelocity(state.transform)) {
               return {
-                state: {
-                  ...state,
-                  type: "inertia",
-                  transform: advanceInertia(state.transform, action.timestamp),
-                },
-                shouldEmit: true,
+                ...state,
+                type: "inertia",
+                transform: advanceInertia(state.transform, action.timestamp),
               };
             }
             if (snap) {
@@ -200,17 +174,11 @@ function createReduce(snap?: SnapConfig): Reducer {
                     lastUpdatedAt: action.timestamp,
                   },
                 };
-                return {
-                  state: { type: "settled", transform },
-                  shouldEmit: true,
-                };
+                return { type: "settled", transform };
               }
-              return {
-                state: { ...state, type: "snapping", target },
-                shouldEmit: false,
-              };
+              return { ...state, type: "snapping", target };
             }
-            return { state: { ...state, type: "settled" }, shouldEmit: false };
+            return { ...state, type: "settled" };
           }
         }
       }
@@ -218,15 +186,12 @@ function createReduce(snap?: SnapConfig): Reducer {
         switch (action.type) {
           case "motion":
             return {
-              state: {
-                ...state,
-                type: "tracking",
-                transform: applyMotion(state.transform, action),
-              },
-              shouldEmit: false,
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
             };
           case "release":
-            return { state, shouldEmit: false };
+            return state;
           case "tick": {
             const { target } = state;
             const gapX = Math.abs(target.x - state.transform.x.value);
@@ -245,10 +210,7 @@ function createReduce(snap?: SnapConfig): Reducer {
                   lastUpdatedAt: action.timestamp,
                 },
               };
-              return {
-                state: { type: "settled", transform },
-                shouldEmit: true,
-              };
+              return { type: "settled", transform };
             }
             const x = advanceLinearSpring(
               state.transform.x,
@@ -260,10 +222,7 @@ function createReduce(snap?: SnapConfig): Reducer {
               target.y,
               action.timestamp,
             );
-            return {
-              state: { ...state, transform: { ...state.transform, x, y } },
-              shouldEmit: true,
-            };
+            return { ...state, transform: { ...state.transform, x, y } };
           }
         }
       }
@@ -271,17 +230,14 @@ function createReduce(snap?: SnapConfig): Reducer {
         switch (action.type) {
           case "motion":
             return {
-              state: {
-                ...state,
-                type: "tracking",
-                transform: applyMotion(state.transform, action),
-              },
-              shouldEmit: false,
+              ...state,
+              type: "tracking",
+              transform: applyMotion(state.transform, action),
             };
           case "release":
-            return { state, shouldEmit: false };
+            return state;
           case "tick":
-            return { state, shouldEmit: false };
+            return state;
         }
       }
     }
@@ -302,29 +258,22 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
       },
     };
 
-    let pendingEvents: InterpreterEvent[] = [];
     let rafId: number | null = null;
     let mounted = true;
 
     function loop(timestamp: number) {
       if (!mounted) return;
-      for (const motion of pendingEvents) {
-        state = reduce(state, motion).state;
-      }
       const tickResult = reduce(state, { type: "tick", timestamp });
-      state = tickResult.state;
-      if (pendingEvents.length > 0 || tickResult.shouldEmit) {
-        const publicState = toPublicState(state.transform);
-        for (const cb of callbacks) cb(publicState);
-      }
+      state = tickResult;
+      const publicState = toPublicState(state.transform);
+      for (const cb of callbacks) cb(publicState);
       rafId = requestAnimationFrame(loop);
-      pendingEvents = [];
     }
 
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((event) => {
-        pendingEvents.push(event);
+        state = reduce(state, event);
       }),
     );
 
