@@ -29,15 +29,14 @@ type Transform = {
 type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
 
 type StoreState =
-  | { type: "tracking"; transform: Transform; pendingRelease: boolean }
-  | { type: "inertia"; transform: Transform; pendingRelease: boolean }
+  | { type: "tracking"; transform: Transform }
+  | { type: "inertia"; transform: Transform }
   | {
       type: "snapping";
       transform: Transform;
-      pendingRelease: boolean;
       target: { x: number; y: number };
     }
-  | { type: "settled"; transform: Transform; pendingRelease: boolean };
+  | { type: "settled"; transform: Transform };
 
 type StoreAction = InterpreterEvent | { type: "tick"; timestamp: number };
 
@@ -122,30 +121,24 @@ function createReduce(snap?: SnapConfig): Reducer {
               },
               shouldEmit: false,
             };
-          case "release":
-            return {
-              state: { ...state, pendingRelease: true },
-              shouldEmit: false,
-            };
-          case "tick": {
-            if (state.pendingRelease) {
-              if (snap) {
-                const target = computeSnapTarget(snap, state.transform);
-                return {
-                  state: {
-                    ...state,
-                    type: "snapping",
-                    target,
-                    pendingRelease: false,
-                  },
-                  shouldEmit: false,
-                };
-              }
+          case "release": {
+            if (snap) {
+              const target = computeSnapTarget(snap, state.transform);
               return {
-                state: { ...state, type: "settled", pendingRelease: false },
+                state: {
+                  ...state,
+                  type: "snapping",
+                  target,
+                },
                 shouldEmit: false,
               };
             }
+            return {
+              state: { ...state, type: "settled" },
+              shouldEmit: false,
+            };
+          }
+          case "tick": {
             if (hasSignificantVelocity(state.transform)) {
               // Transition to inertia without advancing yet — inertia advances from the next tick.
               return {
@@ -172,7 +165,7 @@ function createReduce(snap?: SnapConfig): Reducer {
                   },
                 };
                 return {
-                  state: { type: "settled", transform, pendingRelease: false },
+                  state: { type: "settled", transform },
                   shouldEmit: true,
                 };
               }
@@ -196,30 +189,24 @@ function createReduce(snap?: SnapConfig): Reducer {
               },
               shouldEmit: false,
             };
-          case "release":
-            return {
-              state: { ...state, pendingRelease: true },
-              shouldEmit: false,
-            };
-          case "tick": {
-            if (state.pendingRelease) {
-              if (snap) {
-                const target = computeSnapTarget(snap, state.transform);
-                return {
-                  state: {
-                    ...state,
-                    type: "snapping",
-                    target,
-                    pendingRelease: false,
-                  },
-                  shouldEmit: false,
-                };
-              }
+          case "release": {
+            if (snap) {
+              const target = computeSnapTarget(snap, state.transform);
               return {
-                state: { ...state, type: "settled", pendingRelease: false },
+                state: {
+                  ...state,
+                  type: "snapping",
+                  target,
+                },
                 shouldEmit: false,
               };
             }
+            return {
+              state: { ...state, type: "settled" },
+              shouldEmit: false,
+            };
+          }
+          case "tick": {
             if (hasSignificantVelocity(state.transform)) {
               return {
                 state: {
@@ -249,7 +236,7 @@ function createReduce(snap?: SnapConfig): Reducer {
                   },
                 };
                 return {
-                  state: { type: "settled", transform, pendingRelease: false },
+                  state: { type: "settled", transform },
                   shouldEmit: true,
                 };
               }
@@ -294,7 +281,7 @@ function createReduce(snap?: SnapConfig): Reducer {
                 },
               };
               return {
-                state: { type: "settled", transform, pendingRelease: false },
+                state: { type: "settled", transform },
                 shouldEmit: true,
               };
             }
@@ -348,7 +335,6 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
         y: createLinearPrimitive(0),
         scale: createExponentialPrimitive(1),
       },
-      pendingRelease: false,
     };
 
     let pendingEvents: InterpreterEvent[] = [];
