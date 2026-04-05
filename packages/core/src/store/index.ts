@@ -134,7 +134,7 @@ function createReduce(snap?: SnapConfig): Reducer {
               };
             }
             return {
-              state: { ...state, type: "settled" },
+              state: { ...state, type: "inertia" },
               shouldEmit: false,
             };
           }
