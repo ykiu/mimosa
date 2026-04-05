@@ -10,7 +10,7 @@ export type Motion = {
   originY: number;
 };
 
-export type InterpreterEvent = ({ type: 'motion' } & Motion) | { type: 'release' };
+export type InterpreterEvent = ({ type: 'motion'; timestamp: number } & Motion) | { type: 'release' };
 
 export type State = {
   transformX: number;

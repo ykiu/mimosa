@@ -2,7 +2,6 @@ import type {
   Store,
   MountedStore,
   MountedInterpreter,
-  Motion,
   InterpreterEvent,
   State,
   Callback,
@@ -33,26 +32,28 @@ type Phase =
   | { type: 'snapping'; target: { x: number; y: number } }
   | { type: 'settled' };
 
+type MotionEvent = Extract<InterpreterEvent, { type: 'motion' }>;
+
 type StoreState = {
   transform: Transform;
-  pendingMotions: Motion[];
+  pendingMotions: MotionEvent[];
   phase: Phase;
   pendingRelease: boolean;
 };
 
-type StoreAction = InterpreterEvent | { type: 'tick'; dtMs: number };
+type StoreAction = InterpreterEvent | { type: 'tick'; timestamp: number };
 
 type ReducerResult = { state: StoreState; shouldEmit: boolean };
 
 const SNAP_THRESHOLD = 0.5; // px
 
-function applyMotion(transform: Transform, motion: Motion, dtMs: number): Transform {
+function applyMotion(transform: Transform, motion: MotionEvent): Transform {
   // When the scale origin is not at (0,0), we need to adjust the translation
   // so that the point under the pinch stays fixed.
   //
   // Formula: newTX = originX + (tx - originX) * dScale + dx
   //          newTY = originY + (ty - originY) * dScale + dy
-  const { dx, dy, dScale, originX, originY } = motion;
+  const { dx, dy, dScale, originX, originY, timestamp } = motion;
 
   const tx = transform.x.value;
   const ty = transform.y.value;
@@ -61,17 +62,17 @@ function applyMotion(transform: Transform, motion: Motion, dtMs: number): Transf
   const newTy = originY + (ty - originY) * dScale + dy;
 
   return {
-    x: applyLinearDelta(transform.x, newTx - tx, dtMs),
-    y: applyLinearDelta(transform.y, newTy - ty, dtMs),
-    scale: applyExponentialFactor(transform.scale, dScale, dtMs),
+    x: applyLinearDelta(transform.x, newTx - tx, timestamp),
+    y: applyLinearDelta(transform.y, newTy - ty, timestamp),
+    scale: applyExponentialFactor(transform.scale, dScale, timestamp),
   };
 }
 
-function advanceInertia(transform: Transform, dtMs: number): Transform {
+function advanceInertia(transform: Transform, timestamp: number): Transform {
   return {
-    x: advanceLinearInertia(transform.x, dtMs),
-    y: advanceLinearInertia(transform.y, dtMs),
-    scale: advanceExponentialInertia(transform.scale, dtMs),
+    x: advanceLinearInertia(transform.x, timestamp),
+    y: advanceLinearInertia(transform.y, timestamp),
+    scale: advanceExponentialInertia(transform.scale, timestamp),
   };
 }
 
@@ -117,7 +118,7 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
           if (state.pendingMotions.length > 0) {
             let transform = state.transform;
             for (const motion of state.pendingMotions) {
-              transform = applyMotion(transform, motion, action.dtMs / state.pendingMotions.length);
+              transform = applyMotion(transform, motion);
             }
             if (state.pendingRelease && snap) {
               const target = computeSnapTarget(snap, transform);
@@ -134,7 +135,7 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
           }
           if (hasSignificantVelocity(state.transform)) {
             return {
-              state: { ...state, transform: advanceInertia(state.transform, action.dtMs), phase: { type: 'inertia' } },
+              state: { ...state, transform: advanceInertia(state.transform, action.timestamp), phase: { type: 'inertia' } },
               shouldEmit: true,
             };
           }
@@ -145,8 +146,8 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
             if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
               const transform = {
                 ...state.transform,
-                x: { value: target.x, velocity: 0 },
-                y: { value: target.y, velocity: 0 },
+                x: { value: target.x, velocity: 0, lastUpdatedAt: action.timestamp },
+                y: { value: target.y, velocity: 0, lastUpdatedAt: action.timestamp },
               };
               return { state: { transform, pendingMotions: [], phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
             }
@@ -172,13 +173,13 @@ function reduce(state: StoreState, action: StoreAction, snap?: SnapConfig): Redu
           if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {
             const transform = {
               ...state.transform,
-              x: { value: target.x, velocity: 0 },
-              y: { value: target.y, velocity: 0 },
+              x: { value: target.x, velocity: 0, lastUpdatedAt: action.timestamp },
+              y: { value: target.y, velocity: 0, lastUpdatedAt: action.timestamp },
             };
             return { state: { transform, pendingMotions: [], phase: { type: 'settled' }, pendingRelease: false }, shouldEmit: true };
           }
-          const x = advanceLinearSpring(state.transform.x, target.x, action.dtMs);
-          const y = advanceLinearSpring(state.transform.y, target.y, action.dtMs);
+          const x = advanceLinearSpring(state.transform.x, target.x, action.timestamp);
+          const y = advanceLinearSpring(state.transform.y, target.y, action.timestamp);
           return { state: { ...state, transform: { ...state.transform, x, y } }, shouldEmit: true };
         }
       }
@@ -214,7 +215,6 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
       pendingRelease: false,
     };
 
-    let lastTimestamp: number | null = null;
     let rafId: number | null = null;
     let mounted = true;
 
@@ -229,9 +229,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
 
     function loop(timestamp: number) {
       if (!mounted) return;
-      const dtMs = lastTimestamp !== null ? Math.min(timestamp - lastTimestamp, 100) : 16;
-      lastTimestamp = timestamp;
-      dispatch({ type: 'tick', dtMs });
+      dispatch({ type: 'tick', timestamp });
       rafId = requestAnimationFrame(loop);
     }
 

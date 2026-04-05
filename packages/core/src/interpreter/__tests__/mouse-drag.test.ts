@@ -27,6 +27,7 @@ describe('mouseDragInterpreter', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'motion', dx: 15, dy: 30, dScale: 1 });
+    expect(typeof (events[0] as { timestamp: unknown }).timestamp).toBe('number');
 
     interpreter.unmount();
   });

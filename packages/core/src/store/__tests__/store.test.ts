@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createStore } from '../index.js';
 import type { MountedInterpreter, Callback, Motion, InterpreterEvent } from '../../types.js';
 
-function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion) => void; release: () => void } {
+function makeMockInterpreter(): MountedInterpreter & { emit: (m: Motion, timestamp?: number) => void; release: () => void } {
   const callbacks = new Set<Callback<InterpreterEvent>>();
   return {
-    emit(m: Motion) {
-      for (const cb of callbacks) cb({ type: 'motion', ...m });
+    emit(m: Motion, timestamp = 0) {
+      for (const cb of callbacks) cb({ type: 'motion', timestamp, ...m });
     },
     release() {
       for (const cb of callbacks) cb({ type: 'release' });

@@ -6,7 +6,7 @@ type MouseDragState =
 
 type MouseDragAction =
   | { type: 'mousedown'; x: number; y: number }
-  | { type: 'mousemove'; x: number; y: number }
+  | { type: 'mousemove'; x: number; y: number; timestamp: number }
   | { type: 'mouseup' };
 
 type ReducerResult = { state: MouseDragState; event?: InterpreterEvent };
@@ -31,6 +31,7 @@ function reduce(state: MouseDragState, action: MouseDragAction): ReducerResult {
             state: { type: 'dragging', prevX: action.x, prevY: action.y },
             event: {
               type: 'motion',
+              timestamp: action.timestamp,
               dx: action.x - state.prevX,
               dy: action.y - state.prevY,
               dScale: 1,
@@ -62,7 +63,7 @@ export function mouseDragInterpreter(): Interpreter {
     }
 
     function onMouseMove(e: MouseEvent) {
-      dispatch({ type: 'mousemove', x: e.clientX, y: e.clientY });
+      dispatch({ type: 'mousemove', x: e.clientX, y: e.clientY, timestamp: e.timeStamp });
     }
 
     function onMouseUp() {

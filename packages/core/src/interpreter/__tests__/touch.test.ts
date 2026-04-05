@@ -60,6 +60,7 @@ describe('touchInterpreter', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'motion', dx: 10, dy: 20, dScale: 1 });
+    expect(typeof (events[0] as { timestamp: unknown }).timestamp).toBe('number');
 
     interpreter.unmount();
   });

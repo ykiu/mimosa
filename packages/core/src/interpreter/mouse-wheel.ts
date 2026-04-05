@@ -33,6 +33,7 @@ export function mouseWheelInterpreter(): Interpreter {
 
       emit({
         type: 'motion',
+        timestamp: e.timeStamp,
         dx: 0,
         dy: 0,
         dScale,

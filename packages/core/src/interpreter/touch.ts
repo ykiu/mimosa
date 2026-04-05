@@ -9,7 +9,7 @@ type TouchState =
 
 type TouchAction =
   | { type: 'touchstart'; points: TouchPoint[] }
-  | { type: 'touchmove'; points: TouchPoint[]; elementRect: DOMRect }
+  | { type: 'touchmove'; points: TouchPoint[]; elementRect: DOMRect; timestamp: number }
   | { type: 'touchend'; points: TouchPoint[] }
   | { type: 'touchcancel'; points: TouchPoint[] };
 
@@ -64,6 +64,7 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
             state: { type: 'single_touch', point: curr },
             event: {
               type: 'motion',
+              timestamp: action.timestamp,
               dx: curr.x - state.point.x,
               dy: curr.y - state.point.y,
               dScale: 1,
@@ -98,6 +99,7 @@ function reduce(state: TouchState, action: TouchAction): ReducerResult {
             state: { type: 'multi_touch', points: [curr0, curr1] },
             event: {
               type: 'motion',
+              timestamp: action.timestamp,
               dx: currMid.x - prevMid.x,
               dy: currMid.y - prevMid.y,
               dScale,
@@ -133,6 +135,7 @@ export function touchInterpreter(): Interpreter {
         type: 'touchmove',
         points: Array.from(e.touches).map(toPoint),
         elementRect: element.getBoundingClientRect(),
+        timestamp: e.timeStamp,
       });
     }
 
