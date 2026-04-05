@@ -344,20 +344,13 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
       pendingRelease: false,
     };
 
-    let pendingMotions: MotionEvent[] = [];
+    let pendingEvents: InterpreterEvent[] = [];
     let rafId: number | null = null;
     let mounted = true;
 
-    function dispatch(action: Extract<StoreAction, { type: "release" }>) {
-      const result = reduce(state, action, options?.snap);
-      state = result.state;
-    }
-
     function loop(timestamp: number) {
       if (!mounted) return;
-      const motions = pendingMotions;
-      pendingMotions = [];
-      for (const motion of motions) {
+      for (const motion of pendingEvents) {
         state = reduce(state, motion, options?.snap).state;
       }
       const tickResult = reduce(
@@ -366,21 +359,18 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
         options?.snap,
       );
       state = tickResult.state;
-      if (motions.length > 0 || tickResult.shouldEmit) {
+      if (pendingEvents.length > 0 || tickResult.shouldEmit) {
         const publicState = toPublicState(state.transform);
         for (const cb of callbacks) cb(publicState);
       }
       rafId = requestAnimationFrame(loop);
+      pendingEvents = [];
     }
 
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((event) => {
-        if (event.type === "motion") {
-          pendingMotions.push(event);
-        } else {
-          dispatch(event);
-        }
+        pendingEvents.push(event);
       }),
     );
 
