@@ -263,8 +263,7 @@ export function createStore(options?: { snap?: SnapConfig }): Store {
 
     function loop(timestamp: number) {
       if (!mounted) return;
-      const tickResult = reduce(state, { type: "tick", timestamp });
-      state = tickResult;
+      state = reduce(state, { type: "tick", timestamp });
       const publicState = toPublicState(state.transform);
       for (const cb of callbacks) cb(publicState);
       rafId = requestAnimationFrame(loop);
