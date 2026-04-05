@@ -39,7 +39,7 @@ export function applyLinearDelta(
 export function advanceLinearInertia(
   prim: LinearPrimitive,
   timestamp: number,
-  decayFactor = 0.98,
+  decayFactor = 0.99,
 ): LinearPrimitive {
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
   const retainedFactor = Math.pow(decayFactor, dtMs);
@@ -102,7 +102,7 @@ export function advanceLinearSpring(
   prim: LinearPrimitive,
   target: number,
   timestamp: number,
-  decayFactor = 0.9,
+  decayFactor = 0.99,
 ): LinearPrimitive {
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
   const retainFactor = Math.pow(decayFactor, dtMs);
