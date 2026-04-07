@@ -1,5 +1,12 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { touchInterpreter, mouseDragInterpreter, createStore, createRenderer } from '@mimosa/core';
+import { useEffect, useRef, type ReactNode } from "react";
+import {
+  touchInterpreter,
+  mouseDragInterpreter,
+  createStore,
+  createRenderer,
+  createReduce,
+  toPublicState,
+} from "@mimosa/core";
 
 type Props = {
   children: ReactNode;
@@ -8,7 +15,12 @@ type Props = {
   className?: string;
 };
 
-export function CarouselContainer({ children, itemCount, itemWidth, className }: Props) {
+export function CarouselContainer({
+  children,
+  itemCount,
+  itemWidth,
+  className,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -23,8 +35,14 @@ export function CarouselContainer({ children, itemCount, itemWidth, className }:
       return -clamped * itemWidth;
     };
 
-    const interpreters = [touchInterpreter()(container), mouseDragInterpreter()(container)];
-    const store = createStore({ snap: { x: snapX } })(interpreters);
+    const interpreters = [
+      touchInterpreter()(container),
+      mouseDragInterpreter()(container),
+    ];
+    const store = createStore(
+      createReduce({ x: snapX }),
+      toPublicState,
+    )(interpreters);
     const renderer = createRenderer()(content, store);
 
     return () => {
@@ -38,9 +56,12 @@ export function CarouselContainer({ children, itemCount, itemWidth, className }:
     <div
       ref={containerRef}
       className={className}
-      style={{ overflow: 'hidden', touchAction: 'none', cursor: 'grab' }}
+      style={{ overflow: "hidden", touchAction: "none", cursor: "grab" }}
     >
-      <div ref={contentRef} style={{ display: 'flex', width: itemCount * itemWidth }}>
+      <div
+        ref={contentRef}
+        style={{ display: "flex", width: itemCount * itemWidth }}
+      >
         {children}
       </div>
     </div>

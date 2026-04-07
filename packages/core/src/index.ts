@@ -20,3 +20,4 @@ export {
 } from "./interpreter/index.js";
 export { createStore } from "./store/index.js";
 export { createRenderer } from "./renderer/index.js";
+export { createReduce, toPublicState } from "./model/index.js";

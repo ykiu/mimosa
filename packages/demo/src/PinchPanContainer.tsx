@@ -1,11 +1,13 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   touchInterpreter,
   mouseDragInterpreter,
   mouseWheelInterpreter,
   createStore,
   createRenderer,
-} from '@mimosa/core';
+  createReduce,
+  toPublicState,
+} from "@mimosa/core";
 
 type Props = {
   children: ReactNode;
@@ -27,7 +29,7 @@ export function PinchPanContainer({ children, className }: Props) {
       mouseWheelInterpreter()(container),
     ];
 
-    const store = createStore()(interpreters);
+    const store = createStore(createReduce(), toPublicState)(interpreters);
     const renderer = createRenderer()(content, store);
 
     return () => {
@@ -41,9 +43,9 @@ export function PinchPanContainer({ children, className }: Props) {
     <div
       ref={containerRef}
       className={className}
-      style={{ overflow: 'hidden', touchAction: 'none', cursor: 'grab' }}
+      style={{ overflow: "hidden", touchAction: "none", cursor: "grab" }}
     >
-      <div ref={contentRef} style={{ display: 'inline-block' }}>
+      <div ref={contentRef} style={{ display: "inline-block" }}>
         {children}
       </div>
     </div>
