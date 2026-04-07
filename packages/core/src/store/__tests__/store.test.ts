@@ -4,6 +4,7 @@ import type {
   MountedInterpreter,
   Callback,
   InterpreterEvent,
+  StoreAction,
 } from "../../types.js";
 
 function makeMockInterpreter(): MountedInterpreter & {
@@ -22,106 +23,113 @@ function makeMockInterpreter(): MountedInterpreter & {
   };
 }
 
+// Simple counter state for testing the store in isolation from the model
+type CounterState = { motionCount: number };
+
+function counterReduce(
+  state: CounterState | undefined = { motionCount: 0 },
+  action: StoreAction,
+): CounterState {
+  if (action.type === "motion") return { motionCount: state.motionCount + 1 };
+  return state;
+}
+
+// Manual rAF control — lets tests trigger animation frames deterministically
+// without depending on fake timer implementation details.
+let rafQueue: FrameRequestCallback[] = [];
+
+function flushRaf(timestamp = 16) {
+  const pending = rafQueue.splice(0);
+  for (const cb of pending) cb(timestamp);
+}
+
+beforeEach(() => {
+  rafQueue = [];
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    rafQueue.push(cb);
+    return rafQueue.length;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("createStore", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("notifies subscribers on next rAF after motion", async () => {
+  it("calls reducer with undefined state on initialization", () => {
     const interp = makeMockInterpreter();
-    const store = createStore()([interp]);
-    const states: unknown[] = [];
-    store.subscribe((s) => states.push(s));
+    const firstArgs: Array<CounterState | undefined> = [];
+    function spyReduce(
+      state: CounterState | undefined,
+      action: StoreAction,
+    ): CounterState {
+      firstArgs.push(state);
+      return counterReduce(state, action);
+    }
+    createStore(spyReduce, (s) => s)([interp]);
+    expect(firstArgs[0]).toBeUndefined();
+  });
+
+  it("notifies subscribers on each animation frame", () => {
+    const interp = makeMockInterpreter();
+    const store = createStore(counterReduce, (s) => s)([interp]);
+    const snapshots: CounterState[] = [];
+    store.subscribe((s) => snapshots.push(s));
+
+    flushRaf();
+    expect(snapshots.length).toBe(1);
+
+    flushRaf();
+    expect(snapshots.length).toBe(2);
+
+    store.unmount();
+  });
+
+  it("forwards interpreter events to the reducer before the next frame", () => {
+    const interp = makeMockInterpreter();
+    const store = createStore(counterReduce, (s) => s)([interp]);
+    const snapshots: CounterState[] = [];
+    store.subscribe((s) => snapshots.push(s));
 
     interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 30, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({ type: "motion", timestamp: 8, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
 
-    // Advance one animation frame (16ms)
-    await vi.advanceTimersByTimeAsync(16);
+    flushRaf();
 
-    expect(states.length).toBeGreaterThan(0);
-    const last = states[states.length - 1] as {
-      transformX: number;
-      transformY: number;
-    };
-    expect(last.transformX).toBeCloseTo(50);
-    expect(last.transformY).toBeCloseTo(30);
+    expect(snapshots[0].motionCount).toBe(2);
 
     store.unmount();
   });
 
-  it("adjusts translation for scale origin", async () => {
+  it("applies toPublicState before notifying subscribers", () => {
     const interp = makeMockInterpreter();
-    const store = createStore()([interp]);
-    const states: unknown[] = [];
-    store.subscribe((s) => states.push(s));
+    const store = createStore(
+      counterReduce,
+      (state) => ({ doubled: state.motionCount * 2 }),
+    )([interp]);
 
-    // Zoom in 2x at origin (100, 100) with current transform at (0, 0)
-    // newTx = 100 + (0 - 100) * 2 + 0 = 100 - 200 = -100
-    // newTy = 100 + (0 - 100) * 2 + 0 = -100
-    interp.emit({ type: "motion", timestamp: 0, dx: 0, dy: 0, dScale: 2, originX: 100, originY: 100 });
+    const snapshots: { doubled: number }[] = [];
+    store.subscribe((s) => snapshots.push(s));
 
-    await vi.advanceTimersByTimeAsync(16);
+    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    flushRaf();
 
-    const last = states[states.length - 1] as {
-      transformX: number;
-      transformY: number;
-      scale: number;
-    };
-    expect(last.scale).toBeCloseTo(2);
-    expect(last.transformX).toBeCloseTo(-100);
-    expect(last.transformY).toBeCloseTo(-100);
+    expect(snapshots[0].doubled).toBe(2);
 
     store.unmount();
   });
 
-  it("stops notifying after unmount", async () => {
+  it("stops notifying after unmount", () => {
     const interp = makeMockInterpreter();
-    const store = createStore()([interp]);
-    const states: unknown[] = [];
-    store.subscribe((s) => states.push(s));
+    const store = createStore(counterReduce, (s) => s)([interp]);
+    const snapshots: CounterState[] = [];
+    store.subscribe((s) => snapshots.push(s));
 
     store.unmount();
     interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 0, dScale: 1, originX: 0, originY: 0 });
-    await vi.advanceTimersByTimeAsync(16);
+    flushRaf();
 
-    expect(states).toHaveLength(0);
-  });
-
-  it("starts snapping immediately on release without waiting for inertia to settle", async () => {
-    const interp = makeMockInterpreter();
-    // Snap x to nearest multiple of 100
-    const store = createStore({
-      snap: { x: (v) => Math.round(v / 100) * 100 },
-    })([interp]);
-    const statesAfterRelease: { transformX: number }[] = [];
-
-    // Drag to x=60 (snap target would be 100) then give it velocity
-    interp.emit({ type: "motion", timestamp: 0, dx: 60, dy: 0, dScale: 1, originX: 0, originY: 0 });
-    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
-
-    // Apply the motions on the first tick
-    await vi.advanceTimersByTimeAsync(16);
-
-    // Release the drag — store should start snapping on next tick, not run inertia
-    interp.emit({ type: "release" });
-
-    store.subscribe((s) =>
-      statesAfterRelease.push(s as { transformX: number }),
-    );
-
-    // Advance a couple of frames
-    await vi.advanceTimersByTimeAsync(16);
-    await vi.advanceTimersByTimeAsync(16);
-
-    // Spring should be moving transformX toward snap target 100
-    expect(statesAfterRelease.length).toBeGreaterThan(0);
-    const last = statesAfterRelease[statesAfterRelease.length - 1];
-    expect(last.transformX).toBeGreaterThan(70); // moved toward snap target
-
-    store.unmount();
+    expect(snapshots).toHaveLength(0);
   });
 });
