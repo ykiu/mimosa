@@ -1,8 +1,10 @@
-このライブラリは、iOS、Android などのネイティブアプリで見られるピンチ・パンなどのジェスチャーによる画面操作を web 上で実現するためのコンポーネントを提供します。
+This library provides components to enable gesture-based screen manipulation such as pinch and pan, commonly seen in native apps on iOS and Android, on the web.
 
-## ドキュメント類のもくじ
+Note: This library is in early development. Don't stick to keeping the current API. Rather, pursue the best API you can think of, and we'll iterate on it together.
 
-必要に応じて、以下のドキュメントを参照してください。
+## Document Structure
 
-- [アーキテクチャ](./design/00_architecture.md)
-- [技術スタック](./design/01_technology_stack.md)
+You can refer to the following documents as needed.
+
+- [Architecture](./design/00_architecture.md)
+- [Technology Stack](./design/01_technology_stack.md)
