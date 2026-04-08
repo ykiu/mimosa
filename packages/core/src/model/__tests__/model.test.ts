@@ -3,7 +3,7 @@ import { createReduce, type TransformPrivateState } from "../index.js";
 import {
   createLinearPrimitive,
   createExponentialPrimitive,
-} from "../../store/primitives.js";
+} from "../primitives.js";
 
 function makeTransform(x = 0, y = 0, scale = 1) {
   return {
@@ -38,7 +38,15 @@ describe("createReduce", () => {
       const reduce = createReduce();
       const state = reduce(
         { type: "settled", transform: makeTransform() },
-        { type: "motion", timestamp: 0, dx: 10, dy: 5, dScale: 1, originX: 0, originY: 0 },
+        {
+          type: "motion",
+          timestamp: 0,
+          dx: 10,
+          dy: 5,
+          dScale: 1,
+          originX: 0,
+          originY: 0,
+        },
       );
       expect(state.type).toBe("tracking");
     });
@@ -67,7 +75,15 @@ describe("createReduce", () => {
       const reduce = createReduce();
       const state = reduce(
         { type: "tracking", transform: makeTransform() },
-        { type: "motion", timestamp: 0, dx: 10, dy: 5, dScale: 1, originX: 0, originY: 0 },
+        {
+          type: "motion",
+          timestamp: 0,
+          dx: 10,
+          dy: 5,
+          dScale: 1,
+          originX: 0,
+          originY: 0,
+        },
       );
       expect(state.type).toBe("tracking");
     });
@@ -76,7 +92,15 @@ describe("createReduce", () => {
       const reduce = createReduce();
       const state = reduce(
         { type: "tracking", transform: makeTransform(10, 20) },
-        { type: "motion", timestamp: 0, dx: 5, dy: -3, dScale: 1, originX: 0, originY: 0 },
+        {
+          type: "motion",
+          timestamp: 0,
+          dx: 5,
+          dy: -3,
+          dScale: 1,
+          originX: 0,
+          originY: 0,
+        },
       );
       expect(state.transform.x.value).toBeCloseTo(15);
       expect(state.transform.y.value).toBeCloseTo(17);
@@ -89,7 +113,15 @@ describe("createReduce", () => {
       // newTy = 100 + (0 - 100) * 2 + 0 = -100
       const state = reduce(
         { type: "tracking", transform: makeTransform() },
-        { type: "motion", timestamp: 0, dx: 0, dy: 0, dScale: 2, originX: 100, originY: 100 },
+        {
+          type: "motion",
+          timestamp: 0,
+          dx: 0,
+          dy: 0,
+          dScale: 2,
+          originX: 100,
+          originY: 100,
+        },
       );
       expect(state.transform.x.value).toBeCloseTo(-100);
       expect(state.transform.y.value).toBeCloseTo(-100);
@@ -132,14 +164,25 @@ describe("createReduce", () => {
       const reduce = createReduce();
       const state = reduce(
         { type: "inertia", transform: makeTransformWithVelocity(1, 0) },
-        { type: "motion", timestamp: 0, dx: 5, dy: 0, dScale: 1, originX: 0, originY: 0 },
+        {
+          type: "motion",
+          timestamp: 0,
+          dx: 5,
+          dy: 0,
+          dScale: 1,
+          originX: 0,
+          originY: 0,
+        },
       );
       expect(state.type).toBe("tracking");
     });
 
     it("advances inertia on tick when velocity is significant", () => {
       const reduce = createReduce();
-      const before = { type: "inertia" as const, transform: makeTransformWithVelocity(10, 0) };
+      const before = {
+        type: "inertia" as const,
+        transform: makeTransformWithVelocity(10, 0),
+      };
       const after = reduce(before, { type: "tick", timestamp: 16 });
       expect(after.type).toBe("inertia");
       expect(after.transform.x.value).toBeGreaterThan(0);
@@ -209,7 +252,13 @@ describe("createReduce", () => {
     it("transitions to tracking on motion", () => {
       const reduce = createReduce();
       const state = reduce(makeSnappingState(60, 100), {
-        type: "motion", timestamp: 0, dx: 5, dy: 0, dScale: 1, originX: 0, originY: 0,
+        type: "motion",
+        timestamp: 0,
+        dx: 5,
+        dy: 0,
+        dScale: 1,
+        originX: 0,
+        originY: 0,
       });
       expect(state.type).toBe("tracking");
     });
@@ -222,7 +271,10 @@ describe("createReduce", () => {
 
     it("advances spring toward target on tick when far", () => {
       const reduce = createReduce();
-      const after = reduce(makeSnappingState(60, 100), { type: "tick", timestamp: 16 });
+      const after = reduce(makeSnappingState(60, 100), {
+        type: "tick",
+        timestamp: 16,
+      });
       expect(after.type).toBe("snapping");
       expect(after.transform.x.value).toBeGreaterThan(60);
       expect(after.transform.x.value).toBeLessThan(100);
@@ -230,7 +282,10 @@ describe("createReduce", () => {
 
     it("transitions to settled when within snap threshold", () => {
       const reduce = createReduce();
-      const after = reduce(makeSnappingState(99.9, 100), { type: "tick", timestamp: 16 });
+      const after = reduce(makeSnappingState(99.9, 100), {
+        type: "tick",
+        timestamp: 16,
+      });
       expect(after.type).toBe("settled");
       expect(after.transform.x.value).toBeCloseTo(100);
     });

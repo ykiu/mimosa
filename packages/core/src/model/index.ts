@@ -15,7 +15,7 @@ import {
   advanceLinearInertia,
   advanceExponentialInertia,
   advanceLinearSpring,
-} from "../store/primitives.js";
+} from "./primitives.js";
 
 type Transform = {
   x: LinearPrimitive;
