@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PinchPanContainer } from './PinchPanContainer.js';
 import { CarouselContainer } from './CarouselContainer.js';
+import { ScalableCarouselContainer } from './ScalableCarouselContainer.js';
 
 const IMAGE_URL =
   'https://picsum.photos/id/599/400/300';
@@ -13,7 +14,18 @@ const CAROUSEL_ITEMS = [
   { label: 'Item 5', bg: 'bg-violet-600' },
 ];
 
-type Tab = 'pinch-pan' | 'carousel';
+const SCALABLE_CAROUSEL_ITEM_WIDTH = 400;
+const SCALABLE_CAROUSEL_ITEM_HEIGHT = 500;
+
+const SCALABLE_CAROUSEL_ITEMS = [
+  { id: 'photo-1', photoId: '10' },
+  { id: 'photo-2', photoId: '20' },
+  { id: 'photo-3', photoId: '30' },
+  { id: 'photo-4', photoId: '40' },
+  { id: 'photo-5', photoId: '50' },
+];
+
+type Tab = 'pinch-pan' | 'carousel' | 'scalable-carousel';
 
 export function App() {
   const [tab, setTab] = useState<Tab>('pinch-pan');
@@ -34,6 +46,12 @@ export function App() {
             onClick={() => setTab('carousel')}
           >
             Carousel
+          </button>
+          <button
+            className={`px-3 py-1 rounded text-sm ${tab === 'scalable-carousel' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+            onClick={() => setTab('scalable-carousel')}
+          >
+            Scalable Carousel
           </button>
         </nav>
       </header>
@@ -68,6 +86,29 @@ export function App() {
           </CarouselContainer>
           <p className="text-center text-gray-500 text-sm py-2">
             Drag or swipe to navigate · Snaps to each item
+          </p>
+        </div>
+      )}
+
+      {tab === 'scalable-carousel' && (
+        <div className="flex-1 flex flex-col items-center justify-center bg-gray-900">
+          <ScalableCarouselContainer
+            items={SCALABLE_CAROUSEL_ITEMS.map(({ id, photoId }) => ({
+              id,
+              children: (
+                <img
+                  src={`https://picsum.photos/id/${photoId}/${SCALABLE_CAROUSEL_ITEM_WIDTH}/${SCALABLE_CAROUSEL_ITEM_HEIGHT}`}
+                  alt={id}
+                  draggable={false}
+                  style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none' }}
+                />
+              ),
+            }))}
+            itemWidth={SCALABLE_CAROUSEL_ITEM_WIDTH}
+            itemHeight={SCALABLE_CAROUSEL_ITEM_HEIGHT}
+          />
+          <p className="text-center text-gray-500 text-sm py-2">
+            Drag or swipe to navigate · Pinch to zoom · Snaps back on release
           </p>
         </div>
       )}
