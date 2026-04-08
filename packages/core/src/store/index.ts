@@ -7,7 +7,7 @@ import type {
   Reducer,
 } from "../types.js";
 
-export function createStore<TState, TPrivateState>(
+export function createStore<TPrivateState, TState>(
   reduce: Reducer<TPrivateState>,
   toPublicState: (privateState: TPrivateState) => TState,
 ): Store<TState> {
@@ -15,6 +15,7 @@ export function createStore<TState, TPrivateState>(
     const callbacks = new Set<Callback<TState>>();
 
     let state = reduce(undefined, { type: "tick", timestamp: 0 });
+    let lastEmittedState: TPrivateState | undefined;
 
     let rafId: number | null = null;
     let mounted = true;
@@ -22,15 +23,27 @@ export function createStore<TState, TPrivateState>(
     function loop(timestamp: number) {
       if (!mounted) return;
       state = reduce(state, { type: "tick", timestamp });
+      if (state === lastEmittedState) {
+        rafId = null;
+        return;
+      }
+      lastEmittedState = state;
       const publicState = toPublicState(state);
       for (const cb of callbacks) cb(publicState);
       rafId = requestAnimationFrame(loop);
+    }
+
+    function resumeLoop() {
+      if (rafId === null && mounted) {
+        rafId = requestAnimationFrame(loop);
+      }
     }
 
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((event) => {
         state = reduce(state, event);
+        resumeLoop();
       }),
     );
 

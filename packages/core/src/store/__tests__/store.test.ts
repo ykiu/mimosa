@@ -71,7 +71,7 @@ describe("createStore", () => {
     expect(firstArgs[0]).toBeUndefined();
   });
 
-  it("notifies subscribers on each animation frame", () => {
+  it("notifies subscribers on the first frame with the initial state", () => {
     const interp = makeMockInterpreter();
     const store = createStore(counterReduce, (s) => s)([interp]);
     const snapshots: CounterState[] = [];
@@ -79,8 +79,41 @@ describe("createStore", () => {
 
     flushRaf();
     expect(snapshots.length).toBe(1);
+    expect(snapshots[0].motionCount).toBe(0);
 
-    flushRaf();
+    store.unmount();
+  });
+
+  it("pauses the loop when state reference is unchanged after a tick", () => {
+    const interp = makeMockInterpreter();
+    const store = createStore(counterReduce, (s) => s)([interp]);
+    const snapshots: CounterState[] = [];
+    store.subscribe((s) => snapshots.push(s));
+
+    flushRaf(); // initial state emitted, then loop pauses (tick returns same ref)
+    expect(snapshots.length).toBe(1);
+
+    flushRaf(); // loop is paused, no new frame scheduled
+    expect(snapshots.length).toBe(1);
+
+    store.unmount();
+  });
+
+  it("resumes the loop when an interpreter event changes state", () => {
+    const interp = makeMockInterpreter();
+    const store = createStore(counterReduce, (s) => s)([interp]);
+    const snapshots: CounterState[] = [];
+    store.subscribe((s) => snapshots.push(s));
+
+    flushRaf(); // initial state, then pauses
+    expect(snapshots.length).toBe(1);
+
+    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    flushRaf(); // loop resumed, new state emitted
+    expect(snapshots.length).toBe(2);
+    expect(snapshots[1].motionCount).toBe(1);
+
+    flushRaf(); // state unchanged again, loop pauses
     expect(snapshots.length).toBe(2);
 
     store.unmount();
