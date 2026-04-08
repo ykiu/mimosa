@@ -4,14 +4,25 @@
 
 All transformations in this library are expressed as a combination of transformX, transformY, and scale. The transform-origin for scale is set to the top-left corner of the target element. To make it appear as though scaling is centered on the pinch gesture's midpoint, the library computes appropriate transformX and transformY values based on the pinch origin (the actual scale transform is always applied relative to the top-left corner).
 
-State transition logic in this library is written as reducers.
-
 ## Common Type Definitions
 
 ```typescript
 type UnsubscribeFn = () => void;
 type UnmountFn = () => void;
 type Callback<T> = (value: T) => void;
+```
+
+**Reducer** is the core abstraction for state machines in this library. A Reducer is a pure function that takes the current state and an action, and returns the next state:
+
+```typescript
+type Reducer<TState, TAction> = (state: TState, action: TAction) => TState;
+```
+
+Some reducers also return an optional output event alongside the new state (e.g. Interpreter reducers that emit an `InterpreterEvent`):
+
+```typescript
+// Variant used by Interpreters
+reduce(state, action) => { state: TState; event?: TOutputEvent }
 ```
 
 **Motion** is the motion payload used internally by the Store. It represents the relative change from the previous state. For pan gestures, use `dScale: 1` and `originX/Y: 0`.
@@ -45,6 +56,27 @@ type State = {
   scale: number;      // scale factor (1.0 = original size)
 };
 ```
+
+## State Machine Design
+
+All stateful logic in this library is implemented as pure reducer functions. This is a library-wide principle that applies to every module that maintains state.
+
+### State Representation with Tagged Unions
+
+Each stateful component models its internal state as a tagged union, where each variant represents a distinct and valid configuration. With tagged unions, impossible states become inexpressible — the type system enforces invariants with no runtime checks required. The set of valid state transitions also becomes self-documenting: a `touchmove` event received in a `no_touch` state cannot reach the code path that computes a pan motion, because that path pattern-matches on `single_touch`.
+
+### Reducer Pattern
+
+State transitions are implemented as pure reducers. Separating pure transition logic from side effects (event subscription, output event emission) yields two practical benefits:
+
+1. **Testability**: A reducer can be tested as a plain function with no DOM or framework setup — pass a state and an action, assert on the returned state and optional output event.
+2. **Traceability**: Every state change originates from a named action, making the flow of data easy to follow and debug.
+
+Side effects are confined to a thin `dispatch()` wrapper that calls `reduce`, updates the stored state, and handles any output event returned by the reducer.
+
+### Reference Equality Contract
+
+To support the Store's pause/resume optimization, all Reducers must follow a **reference equality contract**: when an action causes no state change, return the same object reference rather than a new object with identical values. This allows the Store to detect a settled state with a simple `===` check.
 
 ## Module Composition
 
@@ -82,31 +114,20 @@ Implementation details:
 - **mouseDragInterpreter**: A factory function for an interpreter that handles mouse drag events. Tracks mouse movement and identifies pan gestures.
 - **mouseWheelInterpreter**: A factory function for an interpreter that handles mouse wheel events. Tracks wheel rotation and identifies zoom gestures.
 
-### State Representation and Reducer Pattern
+### State Representation
 
-Each stateful interpreter models its internal state as a tagged union, where each variant represents a distinct and valid configuration:
+Each stateful interpreter models its internal state as a tagged union following the library-wide [State Machine Design](#state-machine-design) principles:
 
 - `touchInterpreter`: `no_touch | single_touch | multi_touch`
 - `mouseDragInterpreter`: `idle | dragging`
 
-With tagged unions, impossible states become inexpressible. For example, a `single_touch` state necessarily carries exactly one touch point, and a `multi_touch` state necessarily carries exactly two — the type system enforces these invariants with no runtime checks required. Additionally, the set of valid state transitions becomes self-documenting: `touchInterpreter` can transition `no_touch → single_touch` and `single_touch → multi_touch`, but not `no_touch → multi_touch` directly. A `touchmove` event received while in `no_touch` state cannot reach the code path that computes a pan motion, because that path pattern-matches on `single_touch`.
+For example, a `single_touch` state necessarily carries exactly one touch point, and a `multi_touch` state necessarily carries exactly two. `touchInterpreter` can transition `no_touch → single_touch` and `single_touch → multi_touch`, but not `no_touch → multi_touch` directly.
 
-State transitions are implemented as a pure reducer:
-
-```
-reduce(state, action) => { state, event? }
-```
-
-where each `action` corresponds to a DOM event. Separating pure transition logic from side effects (event subscription, InterpreterEvent emission) yields two practical benefits:
-
-1. **Testability**: The reducer can be tested as a plain function with no DOM setup — pass a state and an action, assert on the returned state and event.
-2. **Traceability**: Every state change originates from a named action, making the flow of data easy to follow and debug.
-
-Side effects are confined to the thin `dispatch()` wrapper inside each interpreter factory, which calls `reduce`, updates the stored state, and emits the InterpreterEvent if one was returned.
+Each action corresponds to a DOM event. Side effects are confined to the thin `dispatch()` wrapper inside each interpreter factory, which calls `reduce`, updates the stored state, and emits the `InterpreterEvent` if one was returned.
 
 ## Model Module
 
-The Model module contains the pure state transition logic for transformations. It defines a reducer that describes how the transform state changes in response to gestures and animation ticks. Separating this logic from the Store makes it independently testable and replaceable.
+The Model module contains the pure state transition logic for transformations. Following the library-wide [State Machine Design](#state-machine-design) principles, it defines a reducer that describes how the transform state changes in response to gestures and animation ticks. Separating this logic from the Store makes it independently testable and replaceable.
 
 ```typescript
 declare function createReduce(snap?: SnapConfig): Reducer<TransformPrivateState>;
@@ -134,9 +155,7 @@ The Store module is a generic animation loop. It subscribes to Interpreter event
 
 The Store has a continuous update loop driven by `requestAnimationFrame()`. Motion events received from Interpreters are applied to the reducer. The tick action is dispatched on each frame to advance inertia or spring animations.
 
-The Store's update loop emits state to subscribers on every frame where the state changes. The loop pauses automatically when the reducer returns the same object reference as the previous state (indicating the state has settled), and resumes when an Interpreter emits a new event. This pause/resume behavior is an implementation detail of the Store — other modules must not depend on it.
-
-To support this optimization, Reducers must follow a **reference equality contract**: when an action causes no state change, return the same object reference rather than a new object with identical values.
+The Store's update loop emits state to subscribers on every frame where the state changes. The loop pauses automatically when the reducer returns the same object reference as the previous state (indicating the state has settled), and resumes when an Interpreter emits a new event. This pause/resume behavior is an implementation detail of the Store — other modules must not depend on it. The reference equality contract described in [State Machine Design](#state-machine-design) is what enables this optimization.
 
 ```typescript
 type Store<TState> = (interpreters: MountedInterpreter[]) => MountedStore<TState>;
