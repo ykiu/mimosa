@@ -134,7 +134,9 @@ The Store module is a generic animation loop. It subscribes to Interpreter event
 
 The Store has a continuous update loop driven by `requestAnimationFrame()`. Motion events received from Interpreters are applied to the reducer. The tick action is dispatched on each frame to advance inertia or spring animations.
 
-The Store's update loop runs continuously and emits state to subscribers on every frame. As an optimization, pausing the loop when there are no significant changes is permitted, but this must be treated as an implementation detail of the Store module — other modules must not depend on this behavior.
+The Store's update loop emits state to subscribers on every frame where the state changes. The loop pauses automatically when the reducer returns the same object reference as the previous state (indicating the state has settled), and resumes when an Interpreter emits a new event. This pause/resume behavior is an implementation detail of the Store — other modules must not depend on it.
+
+To support this optimization, Reducers must follow a **reference equality contract**: when an action causes no state change, return the same object reference rather than a new object with identical values.
 
 ```typescript
 type Store<TState> = (interpreters: MountedInterpreter[]) => MountedStore<TState>;

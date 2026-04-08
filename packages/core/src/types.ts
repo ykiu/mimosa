@@ -41,6 +41,13 @@ export type StoreAction =
   | InterpreterEvent
   | { type: "tick"; timestamp: number };
 
+/**
+ * A pure function that computes the next private state from the current state and an action.
+ *
+ * **Reference equality contract**: when the state is unchanged, return the same object reference.
+ * The Store uses reference equality (`===`) to detect when the state has settled and pauses the
+ * animation loop accordingly. Returning a new object with identical values defeats this optimization.
+ */
 export type Reducer<TPrivateState> = (
   state: TPrivateState | undefined,
   action: StoreAction,
