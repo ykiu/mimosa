@@ -1,7 +1,7 @@
-import type { Renderer, MountedRenderer, MountedStore } from '../types.js';
+import type { Renderer, MountedRenderer, MountedStore, State } from '../types.js';
 
-export function createRenderer(): Renderer {
-  return (element: Element, store: MountedStore): MountedRenderer => {
+export function createRenderer(): Renderer<State> {
+  return (element: Element, store: MountedStore<State>): MountedRenderer => {
     const el = element as HTMLElement;
 
     const unsubscribe = store.subscribe(({ transformX, transformY, scale }) => {
