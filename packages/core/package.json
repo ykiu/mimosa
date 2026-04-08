@@ -6,6 +6,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "build": "tsc",
+    "tsc": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
