@@ -7,6 +7,7 @@ import {
   toCarouselPublicState,
   type MountedInterpreter,
   type InterpreterEvent,
+  mouseWheelInterpreter,
 } from "@mimosa/core";
 
 type ScalableCarouselItem = {
@@ -21,16 +22,26 @@ type Props = {
   className?: string;
 };
 
-function withItemId(interp: MountedInterpreter, itemId: string): MountedInterpreter {
+function withItemId(
+  interp: MountedInterpreter,
+  itemId: string,
+): MountedInterpreter {
   return {
     subscribe(cb) {
-      return interp.subscribe((event: InterpreterEvent) => cb({ ...event, itemId }));
+      return interp.subscribe((event: InterpreterEvent) =>
+        cb({ ...event, itemId }),
+      );
     },
     unmount: () => interp.unmount(),
   };
 }
 
-export function ScalableCarouselContainer({ items, itemWidth, itemHeight, className }: Props) {
+export function ScalableCarouselContainer({
+  items,
+  itemWidth,
+  itemHeight,
+  className,
+}: Props) {
   const stripRef = useRef<HTMLDivElement>(null);
   const itemContentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const itemViewportRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -46,11 +57,16 @@ export function ScalableCarouselContainer({ items, itemWidth, itemHeight, classN
       allInterpreters.push(
         withItemId(touchInterpreter()(viewport), item.id),
         withItemId(mouseDragInterpreter()(viewport), item.id),
+        withItemId(mouseWheelInterpreter()(viewport), item.id),
       );
     }
 
     const store = createStore(
-      createCarouselReduce({ itemWidth, itemHeight, itemIds: items.map((i) => i.id) }),
+      createCarouselReduce({
+        itemWidth,
+        itemHeight,
+        itemIds: items.map((i) => i.id),
+      }),
       toCarouselPublicState,
     )(allInterpreters);
 
