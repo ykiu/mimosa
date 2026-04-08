@@ -41,9 +41,11 @@ type Motion = {
 
 ```typescript
 type InterpreterEvent =
-  | ({ type: 'motion'; timestamp: number } & Motion) // user is actively gesturing
-  | { type: 'release' };                             // user lifted all fingers / released the mouse button
+  | ({ type: 'motion'; itemId?: string; timestamp: number } & Motion) // user is actively gesturing
+  | { type: 'release'; itemId?: string };                             // user lifted all fingers / released the mouse button
 ```
+
+The optional `itemId` field identifies which item within a multi-item container (e.g. a carousel) the gesture targets. It is absent for container-level gestures such as swiping the carousel strip itself.
 
 The `timestamp` on motion events is taken from the originating DOM event (`e.timeStamp`) and is used by the Store to compute accurate time deltas for velocity tracking.
 
@@ -133,6 +135,26 @@ The Model module contains the pure state transition logic for transformations. F
 declare function createReduce(snap?: SnapConfig): Reducer<TransformPrivateState>;
 declare function toPublicState(state: TransformPrivateState): State;
 ```
+
+For multi-item carousels that support per-item pinch-to-zoom, the Model also provides a carousel reducer:
+
+```typescript
+type CarouselConfig = {
+  itemWidth: number;   // item container width (px)
+  itemHeight: number;  // item container height (px)
+  itemIds: readonly string[];  // ordered list of item identifiers
+};
+
+type CarouselPublicState = {
+  carouselTranslateX: number;  // horizontal offset of the carousel strip (px)
+  items: Record<string, { transformX: number; transformY: number; scale: number }>;
+};
+
+declare function createCarouselReduce(config: CarouselConfig): Reducer<CarouselPrivateState>;
+declare function toCarouselPublicState(state: CarouselPrivateState): CarouselPublicState;
+```
+
+The carousel reducer uses a single global phase (`tracking | inertia | snapping | settled`) shared across the carousel strip and all items. This avoids an exponential explosion of per-item phase combinations. Motion events carrying an `itemId` are applied to that item's transform; any horizontal pan that exceeds the item's pan bounds (derived from its current scale) overflows to the carousel strip. On release, the carousel snaps to the nearest item boundary and each item snaps back to its neutral position (`x=0, y=0, scale=1`).
 
 Implementation details:
 

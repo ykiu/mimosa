@@ -21,3 +21,9 @@ export {
 export { createStore } from "./store/index.js";
 export { createRenderer } from "./renderer/index.js";
 export { createReduce, toPublicState } from "./model/index.js";
+export {
+  createCarouselReduce,
+  toCarouselPublicState,
+  type CarouselConfig,
+  type CarouselPublicState,
+} from "./model/carousel.js";

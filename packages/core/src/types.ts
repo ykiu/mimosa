@@ -5,6 +5,8 @@ export type Callback<T> = (value: T) => void;
 export type InterpreterEvent =
   | {
       type: "motion";
+      /** Identifies the item being interacted with. Absent for container-level gestures. */
+      itemId?: string;
       dx: number;
       dy: number;
       dScale: number;
@@ -12,7 +14,11 @@ export type InterpreterEvent =
       originY: number;
       timestamp: number;
     }
-  | { type: "release" };
+  | {
+      type: "release";
+      /** Identifies the item being released. Absent for container-level gestures. */
+      itemId?: string;
+    };
 
 // TODO: Move to a new module
 export type State = {

@@ -94,6 +94,27 @@ export function advanceExponentialInertia(
 }
 
 /**
+ * Advance an ExponentialPrimitive toward a target scale using exponential spring.
+ * Works in log space so that the convergence is symmetric (e.g. 2→1 and 0.5→1 behave alike).
+ * decayFactor: fraction of log-gap retained per ms (lower = faster convergence).
+ */
+export function advanceExponentialSpring(
+  prim: ExponentialPrimitive,
+  target: number,
+  timestamp: number,
+  decayFactor = 0.99,
+): ExponentialPrimitive {
+  const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
+  const logValue = Math.log(prim.value);
+  const logTarget = Math.log(target);
+  const retainFactor = Math.pow(decayFactor, dtMs);
+  const newLogValue = logTarget + (logValue - logTarget) * retainFactor;
+  const value = Math.exp(newLogValue);
+  const logVelocity = dtMs > 0 ? (newLogValue - logValue) / dtMs : 0;
+  return { value, logVelocity, lastUpdatedAt: timestamp };
+}
+
+/**
  * Advance a LinearPrimitive toward a target using exponential spring.
  * Each millisecond, the gap between current value and target shrinks by (1 - decayFactor).
  * decayFactor: fraction of gap retained per ms (lower = faster convergence).
