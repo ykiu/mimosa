@@ -120,10 +120,10 @@ describe("createCarouselReduce", () => {
         motion({ itemId: "a", dx: 10, dy: 5 }),
       );
       expect(state.type).toBe("tracking");
-      expect(state.items["a"].x.value).toBeCloseTo(-40);
-      expect(state.items["a"].y.value).toBeCloseTo(-45);
+      expect(state.items.a.x.value).toBeCloseTo(-40);
+      expect(state.items.a.y.value).toBeCloseTo(-45);
       // Other items are untouched
-      expect(state.items["b"].x.value).toBe(0);
+      expect(state.items.b.x.value).toBe(0);
     });
 
     it("ignores motion events with an unknown itemId (returns same state reference)", () => {
@@ -192,8 +192,8 @@ describe("createCarouselReduce", () => {
       );
       state = reduce(state, { type: "release" });
       if (state.type === "snapping") {
-        expect(state.itemTargets["a"]).toEqual({ x: 0, y: 0, scale: 1 });
-        expect(state.itemTargets["b"]).toEqual({ x: 0, y: 0, scale: 1 });
+        expect(state.itemTargets.a).toEqual({ x: 0, y: 0, scale: 1 });
+        expect(state.itemTargets.b).toEqual({ x: 0, y: 0, scale: 1 });
       }
     });
   });
@@ -211,7 +211,7 @@ describe("createCarouselReduce", () => {
         motion({ itemId: "a", dx: -100 }),
       );
       expect(state.carousel.value).toBeCloseTo(0);
-      expect(state.items["a"].x.value).toBeCloseTo(-100);
+      expect(state.items.a.x.value).toBeCloseTo(-100);
     });
 
     it("overflow pan beyond item left bound transfers to carousel", () => {
@@ -222,7 +222,7 @@ describe("createCarouselReduce", () => {
         motion({ itemId: "a", dx: -50 }),
       );
       // Item stays clamped at minX = ITEM_WIDTH * (1 - 2) = -400
-      expect(state.items["a"].x.value).toBeCloseTo(-400);
+      expect(state.items.a.x.value).toBeCloseTo(-400);
       // Overflow of -50 is forwarded to the carousel
       expect(state.carousel.value).toBeCloseTo(-50);
     });
@@ -234,7 +234,7 @@ describe("createCarouselReduce", () => {
         settled(0, { a: { x: 0, y: 0, scale: 2 } }),
         motion({ itemId: "a", dx: 30 }),
       );
-      expect(state.items["a"].x.value).toBeCloseTo(0);
+      expect(state.items.a.x.value).toBeCloseTo(0);
       expect(state.carousel.value).toBeCloseTo(30);
     });
 
@@ -242,7 +242,7 @@ describe("createCarouselReduce", () => {
       const reduce = makeReduce();
       const state = reduce(settled(), motion({ itemId: "a", dx: -80 }));
       // scale=1 → bounds are [0, 0], so all dx overflows
-      expect(state.items["a"].x.value).toBeCloseTo(0);
+      expect(state.items.a.x.value).toBeCloseTo(0);
       expect(state.carousel.value).toBeCloseTo(-80);
     });
   });
@@ -409,8 +409,8 @@ describe("createCarouselReduce", () => {
         timestamp: 16,
       });
       if (after.type === "snapping") {
-        expect(after.items["a"].scale.value).toBeLessThan(1.5);
-        expect(after.items["a"].scale.value).toBeGreaterThan(1);
+        expect(after.items.a.scale.value).toBeLessThan(1.5);
+        expect(after.items.a.scale.value).toBeGreaterThan(1);
       }
     });
 
@@ -419,7 +419,7 @@ describe("createCarouselReduce", () => {
       // Carousel is already very close to target
       const state = makeSnappingState(-399.9, -400);
       // Override item scale to be near 1 as well
-      (state.items["a"].scale as { value: number }).value = 1.005;
+      (state.items.a.scale as { value: number }).value = 1.005;
       const after = reduce(state, { type: "tick", timestamp: 16 });
       expect(after.type).toBe("settled");
       expect(after.carousel.value).toBeCloseTo(-400);
@@ -429,7 +429,7 @@ describe("createCarouselReduce", () => {
       const reduce = makeReduce();
       let state: CarouselPrivateState = makeSnappingState(-200, -400);
       // Override item to avoid blocking convergence
-      (state.items["a"].scale as { value: number }).value = 1;
+      (state.items.a.scale as { value: number }).value = 1;
       for (let i = 1; i <= 300; i++) {
         state = reduce(state, { type: "tick", timestamp: i * 16 });
         if (state.type === "settled") break;
@@ -472,7 +472,7 @@ describe("createCarouselReduce", () => {
         if (state.type === "settled") break;
       }
       expect(state.type).toBe("settled");
-      expect(state.items["a"].scale.value).toBeCloseTo(1, 1);
+      expect(state.items.a.scale.value).toBeCloseTo(1, 1);
     });
 
     it("stays snapping on release", () => {
@@ -497,12 +497,12 @@ describe("createCarouselReduce", () => {
       const state = settled(-400, { a: { x: -10, y: 5, scale: 1.5 } });
       const pub = toCarouselPublicState(state);
       expect(pub.carouselTranslateX).toBe(-400);
-      expect(pub.items["a"]).toEqual({
+      expect(pub.items.a).toEqual({
         transformX: -10,
         transformY: 5,
         scale: 1.5,
       });
-      expect(pub.items["b"]).toEqual({
+      expect(pub.items.b).toEqual({
         transformX: 0,
         transformY: 0,
         scale: 1,
