@@ -29,7 +29,10 @@ export type CarouselPublicState = {
   /** Horizontal translation of the carousel strip (px). Negative = scrolled right. */
   carouselTranslateX: number;
   /** Per-item transform state keyed by item ID. */
-  items: Record<string, { transformX: number; transformY: number; scale: number }>;
+  items: Record<
+    string,
+    { transformX: number; transformY: number; scale: number }
+  >;
 };
 
 // ---------------------------------------------------------------------------
@@ -48,8 +51,16 @@ type ItemTransform = {
  * possible state combinations exponentially.
  */
 export type CarouselPrivateState =
-  | { type: "tracking"; carousel: LinearPrimitive; items: Record<string, ItemTransform> }
-  | { type: "inertia"; carousel: LinearPrimitive; items: Record<string, ItemTransform> }
+  | {
+      type: "tracking";
+      carousel: LinearPrimitive;
+      items: Record<string, ItemTransform>;
+    }
+  | {
+      type: "inertia";
+      carousel: LinearPrimitive;
+      items: Record<string, ItemTransform>;
+    }
   | {
       type: "snapping";
       carousel: LinearPrimitive;
@@ -58,7 +69,11 @@ export type CarouselPrivateState =
       /** Each item snaps back to its neutral position (x=0, y=0, scale=1). */
       itemTargets: Record<string, { x: number; y: number; scale: number }>;
     }
-  | { type: "settled"; carousel: LinearPrimitive; items: Record<string, ItemTransform> };
+  | {
+      type: "settled";
+      carousel: LinearPrimitive;
+      items: Record<string, ItemTransform>;
+    };
 
 type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
 
@@ -275,7 +290,10 @@ function settleToTargets(
 export function toCarouselPublicState(
   state: CarouselPrivateState,
 ): CarouselPublicState {
-  const items: Record<string, { transformX: number; transformY: number; scale: number }> = {};
+  const items: Record<
+    string,
+    { transformX: number; transformY: number; scale: number }
+  > = {};
   for (const [id, item] of Object.entries(state.items)) {
     items[id] = {
       transformX: item.x.value,
@@ -303,7 +321,7 @@ export function createCarouselReduce(
     return items;
   }
 
-    /**
+  /**
    * Handles a motion event for any phase that transitions to / stays in tracking.
    * Returns the updated carousel and items, dispatching item-level motions with
    * overflow pan redirected to the carousel strip.
@@ -314,7 +332,10 @@ export function createCarouselReduce(
     carousel: LinearPrimitive,
     items: Record<string, ItemTransform>,
     action: MotionEvent,
-  ): { carousel: LinearPrimitive; items: Record<string, ItemTransform> } | null {
+  ): {
+    carousel: LinearPrimitive;
+    items: Record<string, ItemTransform>;
+  } | null {
     if (action.itemId !== undefined) {
       const item = items[action.itemId];
       // Unknown item ID — signal no-op to the caller.
@@ -379,7 +400,12 @@ export function createCarouselReduce(
           case "motion": {
             const result = applyMotion(state.carousel, state.items, action);
             if (!result) return state;
-            return { ...state, type: "tracking", carousel: result.carousel, items: result.items };
+            return {
+              ...state,
+              type: "tracking",
+              carousel: result.carousel,
+              items: result.items,
+            };
           }
           case "release": {
             const carouselTarget = computeCarouselSnapTarget(
@@ -430,7 +456,11 @@ export function createCarouselReduce(
           case "motion": {
             const result = applyMotion(state.carousel, state.items, action);
             if (!result) return state;
-            return { type: "tracking", carousel: result.carousel, items: result.items };
+            return {
+              type: "tracking",
+              carousel: result.carousel,
+              items: result.items,
+            };
           }
           case "release":
             return state;
@@ -464,7 +494,11 @@ export function createCarouselReduce(
           case "motion": {
             const result = applyMotion(state.carousel, state.items, action);
             if (!result) return state;
-            return { type: "tracking", carousel: result.carousel, items: result.items };
+            return {
+              type: "tracking",
+              carousel: result.carousel,
+              items: result.items,
+            };
           }
           case "release":
             return state;
