@@ -108,7 +108,15 @@ describe("createStore", () => {
     flushRaf(); // initial state, then pauses
     expect(snapshots.length).toBe(1);
 
-    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({
+      type: "motion",
+      timestamp: 0,
+      dx: 10,
+      dy: 0,
+      dScale: 1,
+      originX: 0,
+      originY: 0,
+    });
     flushRaf(); // loop resumed, new state emitted
     expect(snapshots.length).toBe(2);
     expect(snapshots[1].motionCount).toBe(1);
@@ -125,8 +133,24 @@ describe("createStore", () => {
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 
-    interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 30, dScale: 1, originX: 0, originY: 0 });
-    interp.emit({ type: "motion", timestamp: 8, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({
+      type: "motion",
+      timestamp: 0,
+      dx: 50,
+      dy: 30,
+      dScale: 1,
+      originX: 0,
+      originY: 0,
+    });
+    interp.emit({
+      type: "motion",
+      timestamp: 8,
+      dx: 10,
+      dy: 0,
+      dScale: 1,
+      originX: 0,
+      originY: 0,
+    });
 
     flushRaf();
 
@@ -137,15 +161,22 @@ describe("createStore", () => {
 
   it("applies toPublicState before notifying subscribers", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(
-      counterReduce,
-      (state) => ({ doubled: state.motionCount * 2 }),
-    )([interp]);
+    const store = createStore(counterReduce, (state) => ({
+      doubled: state.motionCount * 2,
+    }))([interp]);
 
     const snapshots: { doubled: number }[] = [];
     store.subscribe((s) => snapshots.push(s));
 
-    interp.emit({ type: "motion", timestamp: 0, dx: 10, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({
+      type: "motion",
+      timestamp: 0,
+      dx: 10,
+      dy: 0,
+      dScale: 1,
+      originX: 0,
+      originY: 0,
+    });
     flushRaf();
 
     expect(snapshots[0].doubled).toBe(2);
@@ -160,7 +191,15 @@ describe("createStore", () => {
     store.subscribe((s) => snapshots.push(s));
 
     store.unmount();
-    interp.emit({ type: "motion", timestamp: 0, dx: 50, dy: 0, dScale: 1, originX: 0, originY: 0 });
+    interp.emit({
+      type: "motion",
+      timestamp: 0,
+      dx: 50,
+      dy: 0,
+      dScale: 1,
+      originX: 0,
+      originY: 0,
+    });
     flushRaf();
 
     expect(snapshots).toHaveLength(0);

@@ -42,7 +42,7 @@ export function advanceLinearInertia(
   decayFactor = 0.99,
 ): LinearPrimitive {
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
-  const retainedFactor = Math.pow(decayFactor, dtMs);
+  const retainedFactor = decayFactor ** dtMs;
   const velocity = prim.velocity * retainedFactor;
   const value = prim.value + velocity * dtMs;
   return { value, velocity, lastUpdatedAt: timestamp };
@@ -87,7 +87,7 @@ export function advanceExponentialInertia(
   decayFactor = 0.98,
 ): ExponentialPrimitive {
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
-  const retainedFactor = Math.pow(decayFactor, dtMs);
+  const retainedFactor = decayFactor ** dtMs;
   const logVelocity = prim.logVelocity * retainedFactor;
   const value = prim.value * Math.exp(logVelocity * dtMs);
   return { value, logVelocity, lastUpdatedAt: timestamp };
@@ -107,7 +107,7 @@ export function advanceExponentialSpring(
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
   const logValue = Math.log(prim.value);
   const logTarget = Math.log(target);
-  const retainFactor = Math.pow(decayFactor, dtMs);
+  const retainFactor = decayFactor ** dtMs;
   const newLogValue = logTarget + (logValue - logTarget) * retainFactor;
   const value = Math.exp(newLogValue);
   const logVelocity = dtMs > 0 ? (newLogValue - logValue) / dtMs : 0;
@@ -126,7 +126,7 @@ export function advanceLinearSpring(
   decayFactor = 0.99,
 ): LinearPrimitive {
   const dtMs = computeDtMs(prim.lastUpdatedAt, timestamp);
-  const retainFactor = Math.pow(decayFactor, dtMs);
+  const retainFactor = decayFactor ** dtMs;
   const value = target + (prim.value - target) * retainFactor;
   const velocity = dtMs > 0 ? (value - prim.value) / dtMs : 0;
   return { value, velocity, lastUpdatedAt: timestamp };

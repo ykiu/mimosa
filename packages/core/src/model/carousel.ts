@@ -269,7 +269,7 @@ function settleToTargets(
   timestamp: number,
 ): { carousel: LinearPrimitive; items: Record<string, ItemTransform> } {
   const settledItems: Record<string, ItemTransform> = {};
-  for (const [id, item] of Object.entries(items)) {
+  for (const [id] of Object.entries(items)) {
     const target = itemTargets[id] ?? { x: 0, y: 0, scale: 1 };
     settledItems[id] = {
       x: { value: target.x, velocity: 0, lastUpdatedAt: timestamp },
@@ -394,6 +394,7 @@ export function createCarouselReduce(
           case "tick":
             return state;
         }
+        throw new Error("unreachable");
       }
       case "inertia": {
         switch (action.type) {
@@ -450,6 +451,7 @@ export function createCarouselReduce(
             return { ...state, type: "snapping", carouselTarget, itemTargets };
           }
         }
+        throw new Error("unreachable");
       }
       case "snapping": {
         switch (action.type) {
@@ -488,6 +490,7 @@ export function createCarouselReduce(
             return { ...state, carousel, items };
           }
         }
+        throw new Error("unreachable");
       }
       case "settled": {
         switch (action.type) {
@@ -505,6 +508,7 @@ export function createCarouselReduce(
           case "tick":
             return state;
         }
+        throw new Error("unreachable");
       }
     }
   };

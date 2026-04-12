@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { touchInterpreter } from '../touch.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { touchInterpreter } from "../touch.js";
 
 function makeTouch(id: number, x: number, y: number): Touch {
   return {
@@ -17,7 +17,7 @@ function makeTouch(id: number, x: number, y: number): Touch {
     force: 1,
     altitudeAngle: 0,
     azimuthAngle: 0,
-    touchType: 'direct',
+    touchType: "direct",
   } as unknown as Touch;
 }
 
@@ -30,13 +30,13 @@ function makeTouchEvent(type: string, touches: Touch[]): TouchEvent {
   });
 }
 
-describe('touchInterpreter', () => {
+describe("touchInterpreter", () => {
   let element: HTMLElement;
 
   beforeEach(() => {
-    element = document.createElement('div');
+    element = document.createElement("div");
     // Give element a bounding rect
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,
       right: 200,
@@ -50,33 +50,50 @@ describe('touchInterpreter', () => {
     document.body.appendChild(element);
   });
 
-  it('emits pan motion on single-touch drag', () => {
+  it("emits pan motion on single-touch drag", () => {
     const interpreter = touchInterpreter()(element);
     const events: unknown[] = [];
     interpreter.subscribe((e) => events.push(e));
 
-    element.dispatchEvent(makeTouchEvent('touchstart', [makeTouch(0, 100, 100)]));
-    element.dispatchEvent(makeTouchEvent('touchmove', [makeTouch(0, 110, 120)]));
+    element.dispatchEvent(
+      makeTouchEvent("touchstart", [makeTouch(0, 100, 100)]),
+    );
+    element.dispatchEvent(
+      makeTouchEvent("touchmove", [makeTouch(0, 110, 120)]),
+    );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: 'motion', dx: 10, dy: 20, dScale: 1 });
-    expect(typeof (events[0] as { timestamp: unknown }).timestamp).toBe('number');
+    expect(events[0]).toMatchObject({
+      type: "motion",
+      dx: 10,
+      dy: 20,
+      dScale: 1,
+    });
+    expect(typeof (events[0] as { timestamp: unknown }).timestamp).toBe(
+      "number",
+    );
 
     interpreter.unmount();
   });
 
-  it('emits pinch motion on two-touch gesture', () => {
+  it("emits pinch motion on two-touch gesture", () => {
     const interpreter = touchInterpreter()(element);
     const events: unknown[] = [];
     interpreter.subscribe((e) => events.push(e));
 
     // Start with two fingers 100px apart
     element.dispatchEvent(
-      makeTouchEvent('touchstart', [makeTouch(0, 50, 100), makeTouch(1, 150, 100)]),
+      makeTouchEvent("touchstart", [
+        makeTouch(0, 50, 100),
+        makeTouch(1, 150, 100),
+      ]),
     );
     // Move them 200px apart (zoom in 2x)
     element.dispatchEvent(
-      makeTouchEvent('touchmove', [makeTouch(0, 0, 100), makeTouch(1, 200, 100)]),
+      makeTouchEvent("touchmove", [
+        makeTouch(0, 0, 100),
+        makeTouch(1, 200, 100),
+      ]),
     );
 
     expect(events).toHaveLength(1);
@@ -86,29 +103,37 @@ describe('touchInterpreter', () => {
     interpreter.unmount();
   });
 
-  it('emits release event on touchend', () => {
+  it("emits release event on touchend", () => {
     const interpreter = touchInterpreter()(element);
     const events: unknown[] = [];
     interpreter.subscribe((e) => events.push(e));
 
-    element.dispatchEvent(makeTouchEvent('touchstart', [makeTouch(0, 100, 100)]));
-    element.dispatchEvent(makeTouchEvent('touchmove', [makeTouch(0, 110, 120)]));
-    element.dispatchEvent(makeTouchEvent('touchend', []));
+    element.dispatchEvent(
+      makeTouchEvent("touchstart", [makeTouch(0, 100, 100)]),
+    );
+    element.dispatchEvent(
+      makeTouchEvent("touchmove", [makeTouch(0, 110, 120)]),
+    );
+    element.dispatchEvent(makeTouchEvent("touchend", []));
 
     expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({ type: 'release' });
+    expect(events[1]).toMatchObject({ type: "release" });
 
     interpreter.unmount();
   });
 
-  it('stops emitting after unmount', () => {
+  it("stops emitting after unmount", () => {
     const interpreter = touchInterpreter()(element);
     const events: unknown[] = [];
     interpreter.subscribe((e) => events.push(e));
     interpreter.unmount();
 
-    element.dispatchEvent(makeTouchEvent('touchstart', [makeTouch(0, 100, 100)]));
-    element.dispatchEvent(makeTouchEvent('touchmove', [makeTouch(0, 110, 120)]));
+    element.dispatchEvent(
+      makeTouchEvent("touchstart", [makeTouch(0, 100, 100)]),
+    );
+    element.dispatchEvent(
+      makeTouchEvent("touchmove", [makeTouch(0, 110, 120)]),
+    );
 
     expect(events).toHaveLength(0);
   });

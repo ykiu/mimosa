@@ -8,6 +8,11 @@
     "tsc": "npm run tsc --workspace=packages/core",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspace=packages/core",
-    "dev": "npm run dev --workspace=packages/demo"
+    "dev": "npm run dev --workspace=packages/demo",
+    "lint": "biome lint .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.11"
   }
 }

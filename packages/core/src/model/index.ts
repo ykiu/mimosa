@@ -6,8 +6,8 @@ import type {
   Reducer,
 } from "../types.js";
 import {
-  LinearPrimitive,
-  ExponentialPrimitive,
+  type LinearPrimitive,
+  type ExponentialPrimitive,
   createLinearPrimitive,
   createExponentialPrimitive,
   applyLinearDelta,
@@ -134,6 +134,7 @@ export function createReduce(
             return state;
           }
         }
+        throw new Error("unreachable");
       }
       case "inertia": {
         switch (action.type) {
@@ -187,6 +188,7 @@ export function createReduce(
             return { ...state, type: "settled" };
           }
         }
+        throw new Error("unreachable");
       }
       case "snapping": {
         switch (action.type) {
@@ -231,6 +233,7 @@ export function createReduce(
             return { ...state, transform: { ...state.transform, x, y } };
           }
         }
+        throw new Error("unreachable");
       }
       case "settled": {
         switch (action.type) {
@@ -245,6 +248,7 @@ export function createReduce(
           case "tick":
             return state;
         }
+        throw new Error("unreachable");
       }
     }
   };

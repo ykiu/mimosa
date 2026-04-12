@@ -23,7 +23,11 @@ function settled(
 ): CarouselPrivateState {
   const defaultItems: Record<
     string,
-    { x: { value: number; velocity: number; lastUpdatedAt: number }; y: { value: number; velocity: number; lastUpdatedAt: number }; scale: { value: number; logVelocity: number; lastUpdatedAt: number } }
+    {
+      x: { value: number; velocity: number; lastUpdatedAt: number };
+      y: { value: number; velocity: number; lastUpdatedAt: number };
+      scale: { value: number; logVelocity: number; lastUpdatedAt: number };
+    }
   > = {};
   for (const id of ITEM_IDS) {
     const { x = 0, y = 0, scale = 1 } = items[id] ?? {};
@@ -182,7 +186,10 @@ describe("createCarouselReduce", () => {
 
     it("item snap targets are all at neutral {x:0, y:0, scale:1}", () => {
       const reduce = makeReduce();
-      let state = reduce(settled(), motion({ itemId: "b", dScale: 2, originX: 0, originY: 0 }));
+      let state = reduce(
+        settled(),
+        motion({ itemId: "b", dScale: 2, originX: 0, originY: 0 }),
+      );
       state = reduce(state, { type: "release" });
       if (state.type === "snapping") {
         expect(state.itemTargets["a"]).toEqual({ x: 0, y: 0, scale: 1 });
@@ -199,7 +206,10 @@ describe("createCarouselReduce", () => {
     it("pan within item bounds does not affect carousel", () => {
       const reduce = makeReduce();
       // At scale 2, item can pan in [-400, 0]. dx = -100 stays within bounds.
-      let state = reduce(settled(0, { a: { x: 0, y: 0, scale: 2 } }), motion({ itemId: "a", dx: -100 }));
+      const state = reduce(
+        settled(0, { a: { x: 0, y: 0, scale: 2 } }),
+        motion({ itemId: "a", dx: -100 }),
+      );
       expect(state.carousel.value).toBeCloseTo(0);
       expect(state.items["a"].x.value).toBeCloseTo(-100);
     });
@@ -281,9 +291,21 @@ describe("createCarouselReduce", () => {
         type: "inertia",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          b: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          c: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
+          a: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          b: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          c: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
@@ -297,9 +319,21 @@ describe("createCarouselReduce", () => {
         type: "inertia",
         carousel: { value: -210, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          b: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          c: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
+          a: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          b: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          c: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
@@ -333,9 +367,21 @@ describe("createCarouselReduce", () => {
         carousel: { value: carouselX, velocity: 0, lastUpdatedAt: 0 },
         carouselTarget,
         items: {
-          a: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1.5, logVelocity: 0, lastUpdatedAt: 0 } },
-          b: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          c: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
+          a: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1.5, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          b: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          c: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
         },
         itemTargets: {
           a: { x: 0, y: 0, scale: 1 },
@@ -358,7 +404,10 @@ describe("createCarouselReduce", () => {
 
     it("springs item scale toward 1", () => {
       const reduce = makeReduce();
-      const after = reduce(makeSnappingState(), { type: "tick", timestamp: 16 });
+      const after = reduce(makeSnappingState(), {
+        type: "tick",
+        timestamp: 16,
+      });
       if (after.type === "snapping") {
         expect(after.items["a"].scale.value).toBeLessThan(1.5);
         expect(after.items["a"].scale.value).toBeGreaterThan(1);
@@ -396,9 +445,21 @@ describe("createCarouselReduce", () => {
         carousel: { value: -400, velocity: 0, lastUpdatedAt: 0 },
         carouselTarget: -400,
         items: {
-          a: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 2, logVelocity: 0, lastUpdatedAt: 0 } },
-          b: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
-          c: { x: { value: 0, velocity: 0, lastUpdatedAt: 0 }, y: { value: 0, velocity: 0, lastUpdatedAt: 0 }, scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 } },
+          a: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 2, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          b: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
+          c: {
+            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
+          },
         },
         itemTargets: {
           a: { x: 0, y: 0, scale: 1 },
@@ -436,8 +497,16 @@ describe("createCarouselReduce", () => {
       const state = settled(-400, { a: { x: -10, y: 5, scale: 1.5 } });
       const pub = toCarouselPublicState(state);
       expect(pub.carouselTranslateX).toBe(-400);
-      expect(pub.items["a"]).toEqual({ transformX: -10, transformY: 5, scale: 1.5 });
-      expect(pub.items["b"]).toEqual({ transformX: 0, transformY: 0, scale: 1 });
+      expect(pub.items["a"]).toEqual({
+        transformX: -10,
+        transformY: 5,
+        scale: 1.5,
+      });
+      expect(pub.items["b"]).toEqual({
+        transformX: 0,
+        transformY: 0,
+        scale: 1,
+      });
     });
   });
 });
