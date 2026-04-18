@@ -154,7 +154,15 @@ declare function createCarouselReduce(config: CarouselConfig): Reducer<CarouselP
 declare function toCarouselPublicState(state: CarouselPrivateState): CarouselPublicState;
 ```
 
-The carousel reducer uses a single global phase (`tracking | inertia | snapping | settled`) shared across the carousel strip and all items. This avoids an exponential explosion of per-item phase combinations. Motion events carrying an `itemId` are applied to that item's transform; any horizontal pan that exceeds the item's pan bounds (derived from its current scale) overflows to the carousel strip. On release, the carousel snaps to the nearest item boundary and each item snaps back to its neutral position (`x=0, y=0, scale=1`).
+The carousel reducer uses a single global phase shared across the carousel strip and all items. This avoids an exponential explosion of per-item phase combinations. The five phases are:
+
+- **scrolling** — the carousel strip is being scrolled; items are not transformed.
+- **focused** — one specific item (`focusedItemId`) is receiving gesture input. The carousel does not move and overflow beyond the item's pan bounds is discarded.
+- **inertia** — the focused item is coasting after the gesture was released; only that item advances; the carousel stays put.
+- **snapping** — the carousel strip is spring-snapping to the nearest item boundary; items remain at their current positions.
+- **settled** — everything is at rest.
+
+A motion event transitions to `focused` when it targets an item that is already zoomed in (`scale > 1`) or carries a scale change (`dScale ≠ 1`). All other motion transitions to `scrolling`. Items retain their position and scale after settling — they do not snap back to neutral.
 
 Implementation details:
 

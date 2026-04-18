@@ -9,7 +9,6 @@ import {
   advanceLinearInertia,
   advanceExponentialInertia,
   advanceLinearSpring,
-  advanceExponentialSpring,
 } from "./primitives.js";
 
 // ---------------------------------------------------------------------------
@@ -49,15 +48,31 @@ type ItemTransform = {
  * The phase is global: a single discriminant covers both the carousel strip and all items.
  * This keeps the state machine manageable — per-item phases would multiply the number of
  * possible state combinations exponentially.
+ *
+ * States:
+ *   scrolling — carousel strip is being scrolled; items are not transformed.
+ *   focused   — one specific item is receiving gesture input (pinch or pan while zoomed in).
+ *   inertia   — the focused item is coasting after the gesture was released.
+ *   snapping  — the carousel strip is spring-snapping to the nearest item boundary.
+ *   settled   — everything is at rest.
  */
 export type CarouselPrivateState =
   | {
-      type: "tracking";
+      type: "scrolling";
+      carousel: LinearPrimitive;
+      items: Record<string, ItemTransform>;
+    }
+  | {
+      type: "focused";
+      /** The item currently receiving gesture input. */
+      focusedItemId: string;
       carousel: LinearPrimitive;
       items: Record<string, ItemTransform>;
     }
   | {
       type: "inertia";
+      /** The item coasting after the gesture was released. */
+      focusedItemId: string;
       carousel: LinearPrimitive;
       items: Record<string, ItemTransform>;
     }
@@ -66,8 +81,6 @@ export type CarouselPrivateState =
       carousel: LinearPrimitive;
       carouselTarget: number;
       items: Record<string, ItemTransform>;
-      /** Each item snaps back to its neutral position (x=0, y=0, scale=1). */
-      itemTargets: Record<string, { x: number; y: number; scale: number }>;
     }
   | {
       type: "settled";
@@ -82,7 +95,6 @@ type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
 // ---------------------------------------------------------------------------
 
 const SNAP_THRESHOLD = 0.5; // px
-const SCALE_SNAP_THRESHOLD = 0.01; // relative (1%)
 const VELOCITY_THRESHOLD = 0.01; // px/ms
 const LOG_VELOCITY_THRESHOLD = 0.0001; // log-units/ms
 
@@ -117,15 +129,14 @@ function getItemBounds(
 
 /**
  * Applies a motion event to an item's transform, clamping translation to the item's
- * pan bounds. Any horizontal translation that exceeds the bounds is returned as
- * `overflowDx` so the caller can redirect it to the carousel strip.
+ * pan bounds. Overflow beyond the bounds is discarded.
  */
 function applyMotionToItem(
   item: ItemTransform,
   motion: MotionEvent,
   itemWidth: number,
   itemHeight: number,
-): { item: ItemTransform; overflowDx: number } {
+): ItemTransform {
   const { dx, dy, dScale, originX, originY, timestamp } = motion;
   const tx = item.x.value;
   const ty = item.y.value;
@@ -138,44 +149,45 @@ function applyMotionToItem(
   const bounds = getItemBounds(newScale, itemWidth, itemHeight);
   const clampedTx = Math.max(bounds.minX, Math.min(bounds.maxX, proposedTx));
   const clampedTy = Math.max(bounds.minY, Math.min(bounds.maxY, proposedTy));
-  const overflowDx = proposedTx - clampedTx;
 
   return {
-    item: {
-      x: applyLinearDelta(item.x, clampedTx - tx, timestamp),
-      y: applyLinearDelta(item.y, clampedTy - ty, timestamp),
-      scale: applyExponentialFactor(item.scale, dScale, timestamp),
-    },
-    overflowDx,
+    x: applyLinearDelta(item.x, clampedTx - tx, timestamp),
+    y: applyLinearDelta(item.y, clampedTy - ty, timestamp),
+    scale: applyExponentialFactor(item.scale, dScale, timestamp),
   };
 }
 
 /**
- * Applies a carousel-level motion event (no itemId) to the carousel strip.
- * Only the horizontal component (dx) is applied; dScale is ignored for the strip.
+ * Determines whether a motion event should enter the "focused" state (item transform)
+ * or the "scrolling" state (carousel scroll).
+ *
+ * Enters "focused" when the gesture targets an item that is already zoomed in,
+ * or when the gesture itself includes a scale change (pinch).
  */
-function applyMotionToCarousel(
-  carousel: LinearPrimitive,
-  motion: MotionEvent,
-): LinearPrimitive {
-  return applyLinearDelta(carousel, motion.dx, motion.timestamp);
-}
-
-function hasSignificantVelocity(
-  carousel: LinearPrimitive,
+function resolveMotionTarget(
+  action: MotionEvent,
   items: Record<string, ItemTransform>,
-): boolean {
-  if (Math.abs(carousel.velocity) > VELOCITY_THRESHOLD) return true;
-  for (const item of Object.values(items)) {
-    if (
-      Math.abs(item.x.velocity) > VELOCITY_THRESHOLD ||
-      Math.abs(item.y.velocity) > VELOCITY_THRESHOLD ||
-      Math.abs(item.scale.logVelocity) > LOG_VELOCITY_THRESHOLD
-    ) {
-      return true;
+): { type: "focused"; itemId: string } | { type: "scrolling" } {
+  if (action.itemId !== undefined) {
+    const item = items[action.itemId];
+    if (item && (action.dScale !== 1 || item.scale.value > 1)) {
+      return { type: "focused", itemId: action.itemId };
     }
   }
-  return false;
+  return { type: "scrolling" };
+}
+
+function focusedItemHasSignificantVelocity(
+  items: Record<string, ItemTransform>,
+  focusedItemId: string,
+): boolean {
+  const item = items[focusedItemId];
+  if (!item) return false;
+  return (
+    Math.abs(item.x.velocity) > VELOCITY_THRESHOLD ||
+    Math.abs(item.y.velocity) > VELOCITY_THRESHOLD ||
+    Math.abs(item.scale.logVelocity) > LOG_VELOCITY_THRESHOLD
+  );
 }
 
 function computeCarouselSnapTarget(
@@ -188,98 +200,45 @@ function computeCarouselSnapTarget(
   return Math.max(-(itemCount - 1) * itemWidth, Math.min(0, nearest));
 }
 
-function makeItemTargets(
-  itemIds: readonly string[],
-): Record<string, { x: number; y: number; scale: number }> {
-  const targets: Record<string, { x: number; y: number; scale: number }> = {};
-  for (const id of itemIds) {
-    targets[id] = { x: 0, y: 0, scale: 1 };
-  }
-  return targets;
-}
-
 function isCarouselSettled(carousel: LinearPrimitive, target: number): boolean {
   return Math.abs(carousel.value - target) < SNAP_THRESHOLD;
 }
 
-function areItemsSettled(
+function advanceFocusedItemInertia(
   items: Record<string, ItemTransform>,
-  targets: Record<string, { x: number; y: number; scale: number }>,
-): boolean {
-  for (const [id, item] of Object.entries(items)) {
-    const target = targets[id];
-    if (!target) continue;
-    if (
-      Math.abs(item.x.value - target.x) >= SNAP_THRESHOLD ||
-      Math.abs(item.y.value - target.y) >= SNAP_THRESHOLD ||
-      Math.abs(item.scale.value - target.scale) >= SCALE_SNAP_THRESHOLD
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function advanceInertia(
-  carousel: LinearPrimitive,
-  items: Record<string, ItemTransform>,
+  focusedItemId: string,
   timestamp: number,
-): { carousel: LinearPrimitive; items: Record<string, ItemTransform> } {
-  const newItems: Record<string, ItemTransform> = {};
-  for (const [id, item] of Object.entries(items)) {
-    newItems[id] = {
+): Record<string, ItemTransform> {
+  const item = items[focusedItemId];
+  if (!item) return items;
+  return {
+    ...items,
+    [focusedItemId]: {
       x: advanceLinearInertia(item.x, timestamp),
       y: advanceLinearInertia(item.y, timestamp),
       scale: advanceExponentialInertia(item.scale, timestamp),
-    };
-  }
-  return {
-    carousel: advanceLinearInertia(carousel, timestamp),
-    items: newItems,
+    },
   };
 }
 
-function advanceSpring(
-  carousel: LinearPrimitive,
-  carouselTarget: number,
+function settleFocusedItem(
   items: Record<string, ItemTransform>,
-  itemTargets: Record<string, { x: number; y: number; scale: number }>,
+  focusedItemId: string,
   timestamp: number,
-): { carousel: LinearPrimitive; items: Record<string, ItemTransform> } {
-  const newItems: Record<string, ItemTransform> = {};
-  for (const [id, item] of Object.entries(items)) {
-    const target = itemTargets[id] ?? { x: 0, y: 0, scale: 1 };
-    newItems[id] = {
-      x: advanceLinearSpring(item.x, target.x, timestamp),
-      y: advanceLinearSpring(item.y, target.y, timestamp),
-      scale: advanceExponentialSpring(item.scale, target.scale, timestamp),
-    };
-  }
+): Record<string, ItemTransform> {
+  const item = items[focusedItemId];
+  if (!item) return items;
   return {
-    carousel: advanceLinearSpring(carousel, carouselTarget, timestamp),
-    items: newItems,
-  };
-}
-
-/** Snap carousel and all items exactly to their target values. */
-function settleToTargets(
-  carouselTarget: number,
-  items: Record<string, ItemTransform>,
-  itemTargets: Record<string, { x: number; y: number; scale: number }>,
-  timestamp: number,
-): { carousel: LinearPrimitive; items: Record<string, ItemTransform> } {
-  const settledItems: Record<string, ItemTransform> = {};
-  for (const [id] of Object.entries(items)) {
-    const target = itemTargets[id] ?? { x: 0, y: 0, scale: 1 };
-    settledItems[id] = {
-      x: { value: target.x, velocity: 0, lastUpdatedAt: timestamp },
-      y: { value: target.y, velocity: 0, lastUpdatedAt: timestamp },
-      scale: { value: target.scale, logVelocity: 0, lastUpdatedAt: timestamp },
-    };
-  }
-  return {
-    carousel: { value: carouselTarget, velocity: 0, lastUpdatedAt: timestamp },
-    items: settledItems,
+    ...items,
+    [focusedItemId]: {
+      x: { value: item.x.value, velocity: 0, lastUpdatedAt: timestamp },
+      y: { value: item.y.value, velocity: 0, lastUpdatedAt: timestamp },
+      scale: {
+        value: item.scale.value,
+        logVelocity: 0,
+        lastUpdatedAt: timestamp,
+      },
+    },
   };
 }
 
@@ -321,43 +280,55 @@ export function createCarouselReduce(
     return items;
   }
 
+  function applyScrollingMotion(
+    carousel: LinearPrimitive,
+    action: MotionEvent,
+  ): LinearPrimitive {
+    return applyLinearDelta(carousel, action.dx, action.timestamp);
+  }
+
   /**
-   * Handles a motion event for any phase that transitions to / stays in tracking.
-   * Returns the updated carousel and items, dispatching item-level motions with
-   * overflow pan redirected to the carousel strip.
-   * Returns null when the event carries an unknown itemId — the caller should
-   * treat this as a no-op and return the current state unchanged.
+   * Applies a motion event to the focused item only. Returns null when the event
+   * does not target the focused item (caller should treat this as a no-op).
    */
-  function applyMotion(
+  function applyFocusedMotion(
+    items: Record<string, ItemTransform>,
+    focusedItemId: string,
+    action: MotionEvent,
+  ): Record<string, ItemTransform> | null {
+    if (action.itemId !== focusedItemId) return null;
+    const item = items[focusedItemId];
+    if (!item) return null;
+    return {
+      ...items,
+      [focusedItemId]: applyMotionToItem(item, action, itemWidth, itemHeight),
+    };
+  }
+
+  /**
+   * Handles a motion event from any state that can freely transition to either
+   * "scrolling" or "focused". Applies the motion and returns the resulting state.
+   */
+  function applyMotionFromAnyState(
     carousel: LinearPrimitive,
     items: Record<string, ItemTransform>,
     action: MotionEvent,
-  ): {
-    carousel: LinearPrimitive;
-    items: Record<string, ItemTransform>;
-  } | null {
-    if (action.itemId !== undefined) {
-      const item = items[action.itemId];
-      // Unknown item ID — signal no-op to the caller.
-      if (!item) return null;
-
-      const { item: newItem, overflowDx } = applyMotionToItem(
-        item,
-        action,
-        itemWidth,
-        itemHeight,
-      );
-      const newCarousel =
-        overflowDx !== 0
-          ? applyLinearDelta(carousel, overflowDx, action.timestamp)
-          : carousel;
-      return {
-        carousel: newCarousel,
-        items: { ...items, [action.itemId]: newItem },
-      };
+  ): CarouselPrivateState {
+    const target = resolveMotionTarget(action, items);
+    if (target.type === "focused") {
+      const newItems = applyFocusedMotion(items, target.itemId, action);
+      if (newItems) {
+        return {
+          type: "focused",
+          focusedItemId: target.itemId,
+          carousel,
+          items: newItems,
+        };
+      }
     }
     return {
-      carousel: applyMotionToCarousel(carousel, action),
+      type: "scrolling",
+      carousel: applyScrollingMotion(carousel, action),
       items,
     };
   }
@@ -371,12 +342,29 @@ export function createCarouselReduce(
     action: StoreAction,
   ): CarouselPrivateState {
     switch (state.type) {
-      case "tracking": {
+      case "scrolling": {
         switch (action.type) {
           case "motion": {
-            const result = applyMotion(state.carousel, state.items, action);
-            if (!result) return state;
-            return { ...state, carousel: result.carousel, items: result.items };
+            const target = resolveMotionTarget(action, state.items);
+            if (target.type === "focused") {
+              const newItems = applyFocusedMotion(
+                state.items,
+                target.itemId,
+                action,
+              );
+              if (newItems) {
+                return {
+                  type: "focused",
+                  focusedItemId: target.itemId,
+                  carousel: state.carousel,
+                  items: newItems,
+                };
+              }
+            }
+            return {
+              ...state,
+              carousel: applyScrollingMotion(state.carousel, action),
+            };
           }
           case "release": {
             const carouselTarget = computeCarouselSnapTarget(
@@ -385,10 +373,10 @@ export function createCarouselReduce(
               itemIds.length,
             );
             return {
-              ...state,
               type: "snapping",
+              carousel: state.carousel,
               carouselTarget,
-              itemTargets: makeItemTargets(itemIds),
+              items: state.items,
             };
           }
           case "tick":
@@ -396,113 +384,100 @@ export function createCarouselReduce(
         }
         throw new Error("unreachable");
       }
-      case "inertia": {
+      case "focused": {
         switch (action.type) {
           case "motion": {
-            const result = applyMotion(state.carousel, state.items, action);
-            if (!result) return state;
-            return {
-              ...state,
-              type: "tracking",
-              carousel: result.carousel,
-              items: result.items,
-            };
-          }
-          case "release": {
-            const carouselTarget = computeCarouselSnapTarget(
-              state.carousel.value,
-              itemWidth,
-              itemIds.length,
+            // Only handle motion targeting the focused item; ignore everything else.
+            const newItems = applyFocusedMotion(
+              state.items,
+              state.focusedItemId,
+              action,
             );
-            return {
-              ...state,
-              type: "snapping",
-              carouselTarget,
-              itemTargets: makeItemTargets(itemIds),
-            };
+            if (!newItems) return state;
+            return { ...state, items: newItems };
           }
+          case "release":
+            return {
+              type: "inertia",
+              focusedItemId: state.focusedItemId,
+              carousel: state.carousel,
+              items: state.items,
+            };
+          case "tick":
+            return state;
+        }
+        throw new Error("unreachable");
+      }
+      case "inertia": {
+        switch (action.type) {
+          case "motion":
+            return applyMotionFromAnyState(state.carousel, state.items, action);
+          case "release":
+            return state;
           case "tick": {
-            if (hasSignificantVelocity(state.carousel, state.items)) {
-              const { carousel, items } = advanceInertia(
-                state.carousel,
-                state.items,
-                action.timestamp,
-              );
-              return { ...state, carousel, items };
-            }
-            const carouselTarget = computeCarouselSnapTarget(
-              state.carousel.value,
-              itemWidth,
-              itemIds.length,
-            );
-            const itemTargets = makeItemTargets(itemIds);
             if (
-              isCarouselSettled(state.carousel, carouselTarget) &&
-              areItemsSettled(state.items, itemTargets)
-            ) {
-              const { carousel, items } = settleToTargets(
-                carouselTarget,
+              focusedItemHasSignificantVelocity(
                 state.items,
-                itemTargets,
-                action.timestamp,
-              );
-              return { type: "settled", carousel, items };
+                state.focusedItemId,
+              )
+            ) {
+              return {
+                ...state,
+                items: advanceFocusedItemInertia(
+                  state.items,
+                  state.focusedItemId,
+                  action.timestamp,
+                ),
+              };
             }
-            return { ...state, type: "snapping", carouselTarget, itemTargets };
+            return {
+              type: "settled",
+              carousel: state.carousel,
+              items: settleFocusedItem(
+                state.items,
+                state.focusedItemId,
+                action.timestamp,
+              ),
+            };
           }
         }
         throw new Error("unreachable");
       }
       case "snapping": {
         switch (action.type) {
-          case "motion": {
-            const result = applyMotion(state.carousel, state.items, action);
-            if (!result) return state;
-            return {
-              type: "tracking",
-              carousel: result.carousel,
-              items: result.items,
-            };
-          }
+          case "motion":
+            return applyMotionFromAnyState(state.carousel, state.items, action);
           case "release":
             return state;
           case "tick": {
-            const { carouselTarget, itemTargets } = state;
-            if (
-              isCarouselSettled(state.carousel, carouselTarget) &&
-              areItemsSettled(state.items, itemTargets)
-            ) {
-              const { carousel, items } = settleToTargets(
-                carouselTarget,
-                state.items,
-                itemTargets,
-                action.timestamp,
-              );
-              return { type: "settled", carousel, items };
+            const { carouselTarget } = state;
+            if (isCarouselSettled(state.carousel, carouselTarget)) {
+              return {
+                type: "settled",
+                carousel: {
+                  value: carouselTarget,
+                  velocity: 0,
+                  lastUpdatedAt: action.timestamp,
+                },
+                items: state.items,
+              };
             }
-            const { carousel, items } = advanceSpring(
-              state.carousel,
-              carouselTarget,
-              state.items,
-              itemTargets,
-              action.timestamp,
-            );
-            return { ...state, carousel, items };
+            return {
+              ...state,
+              carousel: advanceLinearSpring(
+                state.carousel,
+                carouselTarget,
+                action.timestamp,
+              ),
+            };
           }
         }
         throw new Error("unreachable");
       }
       case "settled": {
         switch (action.type) {
-          case "motion": {
-            const result = applyMotion(state.carousel, state.items, action);
-            if (!result) return state;
-            return {
-              type: "tracking",
-              carousel: result.carousel,
-              items: result.items,
-            };
-          }
+          case "motion":
+            return applyMotionFromAnyState(state.carousel, state.items, action);
           case "release":
             return state;
           case "tick":

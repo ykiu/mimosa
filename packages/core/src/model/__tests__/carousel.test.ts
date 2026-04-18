@@ -67,6 +67,14 @@ function motion(
   };
 }
 
+function makeItem(x = 0, y = 0, scale = 1, velocity = 0, logVelocity = 0) {
+  return {
+    x: { value: x, velocity, lastUpdatedAt: 0 },
+    y: { value: y, velocity, lastUpdatedAt: 0 },
+    scale: { value: scale, logVelocity, lastUpdatedAt: 0 },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Initial state
 // ---------------------------------------------------------------------------
@@ -104,14 +112,22 @@ describe("createCarouselReduce", () => {
       expect(reduce(state, { type: "release" })).toBe(state);
     });
 
-    it("transitions to tracking on carousel pan (no itemId)", () => {
+    it("transitions to scrolling on carousel pan (no itemId)", () => {
       const reduce = makeReduce();
       const state = reduce(settled(), motion({ dx: -50 }));
-      expect(state.type).toBe("tracking");
+      expect(state.type).toBe("scrolling");
       expect(state.carousel.value).toBeCloseTo(-50);
     });
 
-    it("transitions to tracking on item motion and updates the target item", () => {
+    it("transitions to scrolling when item at scale=1 is panned (carousel moves, item stays)", () => {
+      const reduce = makeReduce();
+      const state = reduce(settled(), motion({ itemId: "a", dx: -80 }));
+      expect(state.type).toBe("scrolling");
+      expect(state.carousel.value).toBeCloseTo(-80);
+      expect(state.items.a.x.value).toBe(0);
+    });
+
+    it("transitions to focused when a zoomed-in item is panned", () => {
       const reduce = makeReduce();
       // At scale=2, item pan bounds are x ∈ [-400, 0] and y ∈ [-600, 0].
       // Start at (-50, -50) so both dx=10 and dy=5 move within bounds.
@@ -119,30 +135,37 @@ describe("createCarouselReduce", () => {
         settled(0, { a: { x: -50, y: -50, scale: 2 } }),
         motion({ itemId: "a", dx: 10, dy: 5 }),
       );
-      expect(state.type).toBe("tracking");
+      expect(state.type).toBe("focused");
+      if (state.type === "focused") expect(state.focusedItemId).toBe("a");
       expect(state.items.a.x.value).toBeCloseTo(-40);
       expect(state.items.a.y.value).toBeCloseTo(-45);
-      // Other items are untouched
       expect(state.items.b.x.value).toBe(0);
     });
 
-    it("ignores motion events with an unknown itemId (returns same state reference)", () => {
+    it("transitions to focused on pinch (dScale != 1), even when item is at scale=1", () => {
       const reduce = makeReduce();
-      const before = settled();
-      const after = reduce(before, motion({ itemId: "unknown", dx: 10 }));
-      expect(after).toBe(before);
+      const state = reduce(settled(), motion({ itemId: "a", dScale: 1.5 }));
+      expect(state.type).toBe("focused");
+      if (state.type === "focused") expect(state.focusedItemId).toBe("a");
+    });
+
+    it("treats unknown itemId as carousel motion", () => {
+      const reduce = makeReduce();
+      const state = reduce(settled(), motion({ itemId: "unknown", dx: -30 }));
+      expect(state.type).toBe("scrolling");
+      expect(state.carousel.value).toBeCloseTo(-30);
     });
   });
 
   // -------------------------------------------------------------------------
-  // tracking state
+  // scrolling state
   // -------------------------------------------------------------------------
 
-  describe("tracking state", () => {
+  describe("scrolling state", () => {
     it("returns the same reference on tick", () => {
       const reduce = makeReduce();
       const state = reduce(settled(), motion({ dx: -10 }));
-      expect(state.type).toBe("tracking");
+      expect(state.type).toBe("scrolling");
       const next = reduce(state, { type: "tick", timestamp: 16 });
       expect(next).toBe(state);
     });
@@ -184,66 +207,106 @@ describe("createCarouselReduce", () => {
       }
     });
 
-    it("item snap targets are all at neutral {x:0, y:0, scale:1}", () => {
+    it("transitions to focused on pinch mid-scroll", () => {
       const reduce = makeReduce();
-      let state = reduce(
-        settled(),
-        motion({ itemId: "b", dScale: 2, originX: 0, originY: 0 }),
-      );
-      state = reduce(state, { type: "release" });
-      if (state.type === "snapping") {
-        expect(state.itemTargets.a).toEqual({ x: 0, y: 0, scale: 1 });
-        expect(state.itemTargets.b).toEqual({ x: 0, y: 0, scale: 1 });
-      }
+      let state = reduce(settled(), motion({ dx: -50 }));
+      expect(state.type).toBe("scrolling");
+      state = reduce(state, motion({ itemId: "a", dScale: 1.5 }));
+      expect(state.type).toBe("focused");
     });
   });
 
   // -------------------------------------------------------------------------
-  // Item overflow → carousel
+  // focused state
   // -------------------------------------------------------------------------
 
-  describe("item overflow to carousel", () => {
-    it("pan within item bounds does not affect carousel", () => {
+  describe("focused state", () => {
+    function makeFocusedState(
+      aConfig: { x: number; y: number; scale: number } = {
+        x: -50,
+        y: -50,
+        scale: 2,
+      },
+    ): CarouselPrivateState {
+      return {
+        type: "focused",
+        focusedItemId: "a",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeItem(aConfig.x, aConfig.y, aConfig.scale),
+          b: makeItem(),
+          c: makeItem(),
+        },
+      };
+    }
+
+    it("returns the same reference on tick", () => {
       const reduce = makeReduce();
-      // At scale 2, item can pan in [-400, 0]. dx = -100 stays within bounds.
-      const state = reduce(
-        settled(0, { a: { x: 0, y: 0, scale: 2 } }),
-        motion({ itemId: "a", dx: -100 }),
-      );
-      expect(state.carousel.value).toBeCloseTo(0);
-      expect(state.items.a.x.value).toBeCloseTo(-100);
+      const state = makeFocusedState();
+      expect(reduce(state, { type: "tick", timestamp: 16 })).toBe(state);
     });
 
-    it("overflow pan beyond item left bound transfers to carousel", () => {
+    it("applies motion to the focused item", () => {
       const reduce = makeReduce();
-      // At scale 2, item bounds are [-400, 0]. Starting at x=-400 (left edge), any leftward pan overflows.
       const state = reduce(
-        settled(0, { a: { x: -400, y: 0, scale: 2 } }),
-        motion({ itemId: "a", dx: -50 }),
+        makeFocusedState(),
+        motion({ itemId: "a", dx: 10, dy: 5 }),
       );
-      // Item stays clamped at minX = ITEM_WIDTH * (1 - 2) = -400
-      expect(state.items.a.x.value).toBeCloseTo(-400);
-      // Overflow of -50 is forwarded to the carousel
-      expect(state.carousel.value).toBeCloseTo(-50);
+      expect(state.type).toBe("focused");
+      expect(state.items.a.x.value).toBeCloseTo(-40);
+      expect(state.items.a.y.value).toBeCloseTo(-45);
     });
 
-    it("overflow pan beyond item right bound transfers to carousel", () => {
+    it("does not move non-focused items", () => {
       const reduce = makeReduce();
-      // At scale 2, item bounds are [-400, 0]. Starting at x=0 (right edge), any rightward pan overflows.
-      const state = reduce(
-        settled(0, { a: { x: 0, y: 0, scale: 2 } }),
-        motion({ itemId: "a", dx: 30 }),
-      );
-      expect(state.items.a.x.value).toBeCloseTo(0);
-      expect(state.carousel.value).toBeCloseTo(30);
+      const state = reduce(makeFocusedState(), motion({ itemId: "a", dx: 10 }));
+      expect(state.items.b.x.value).toBe(0);
+      expect(state.items.c.x.value).toBe(0);
     });
 
-    it("at scale 1 all pan overflows to carousel", () => {
+    it("ignores motion targeting a different item (returns same reference)", () => {
       const reduce = makeReduce();
-      const state = reduce(settled(), motion({ itemId: "a", dx: -80 }));
-      // scale=1 → bounds are [0, 0], so all dx overflows
-      expect(state.items.a.x.value).toBeCloseTo(0);
-      expect(state.carousel.value).toBeCloseTo(-80);
+      const before = makeFocusedState();
+      const after = reduce(before, motion({ itemId: "b", dx: 30 }));
+      expect(after).toBe(before);
+    });
+
+    it("ignores motion with no itemId (returns same reference)", () => {
+      const reduce = makeReduce();
+      const before = makeFocusedState();
+      const after = reduce(before, motion({ dx: 30 }));
+      expect(after).toBe(before);
+    });
+
+    it("does not move the carousel during item pan", () => {
+      const reduce = makeReduce();
+      const state = reduce(makeFocusedState(), motion({ itemId: "a", dx: 30 }));
+      expect(state.carousel.value).toBe(0);
+    });
+
+    it("discards overflow when item is panned beyond its right bound", () => {
+      const reduce = makeReduce();
+      // At scale=2, maxX=0. Item is already at x=0; panning right overflows.
+      const before = makeFocusedState({ x: 0, y: 0, scale: 2 });
+      const after = reduce(before, motion({ itemId: "a", dx: 50 }));
+      expect(after.items.a.x.value).toBeCloseTo(0); // clamped at maxX=0
+      expect(after.carousel.value).toBeCloseTo(0); // overflow is discarded
+    });
+
+    it("discards overflow when item is panned beyond its left bound", () => {
+      const reduce = makeReduce();
+      // At scale=2, minX=-400. Item is already at x=-400; panning left overflows.
+      const before = makeFocusedState({ x: -400, y: 0, scale: 2 });
+      const after = reduce(before, motion({ itemId: "a", dx: -50 }));
+      expect(after.items.a.x.value).toBeCloseTo(-400); // clamped at minX=-400
+      expect(after.carousel.value).toBeCloseTo(0); // overflow is discarded
+    });
+
+    it("transitions to inertia on release, preserving focusedItemId", () => {
+      const reduce = makeReduce();
+      const state = reduce(makeFocusedState(), { type: "release" });
+      expect(state.type).toBe("inertia");
+      if (state.type === "inertia") expect(state.focusedItemId).toBe("a");
     });
   });
 
@@ -255,101 +318,90 @@ describe("createCarouselReduce", () => {
     function makeInertiaState(): CarouselPrivateState {
       return {
         type: "inertia",
-        carousel: { value: -200, velocity: -5, lastUpdatedAt: 0 },
+        focusedItemId: "a",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          b: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          c: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
+          a: makeItem(-50, 0, 2, -5),
+          b: makeItem(),
+          c: makeItem(),
         },
       };
     }
 
-    it("advances carousel inertia on tick when velocity is significant", () => {
+    it("advances focused item inertia on tick when velocity is significant", () => {
       const reduce = makeReduce();
       const before = makeInertiaState();
       const after = reduce(before, { type: "tick", timestamp: 16 });
       expect(after.type).toBe("inertia");
-      expect(after.carousel.value).toBeLessThan(-200);
+      expect(after.items.a.x.value).toBeLessThan(-50);
     });
 
-    it("transitions to settled on tick when velocity decays and already at snap target", () => {
+    it("does not move the carousel during inertia", () => {
       const reduce = makeReduce();
-      // At x=0 with no velocity — already at snap target 0, all items neutral
+      const after = reduce(makeInertiaState(), { type: "tick", timestamp: 16 });
+      expect(after.carousel.value).toBe(0);
+    });
+
+    it("does not move non-focused items during inertia", () => {
+      const reduce = makeReduce();
+      const after = reduce(makeInertiaState(), { type: "tick", timestamp: 16 });
+      expect(after.items.b.x.value).toBe(0);
+    });
+
+    it("transitions to settled when focused item velocity decays", () => {
+      const reduce = makeReduce();
+      // No velocity on item a → should settle immediately
       const state: CarouselPrivateState = {
         type: "inertia",
+        focusedItemId: "a",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          b: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          c: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
+          a: makeItem(-50, 0, 2),
+          b: makeItem(),
+          c: makeItem(),
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
       expect(next.type).toBe("settled");
     });
 
-    it("transitions to snapping on tick when velocity decays and snap target is far", () => {
+    it("item stays at its current position after settling (no snap to neutral)", () => {
       const reduce = makeReduce();
-      // At x=-210, no velocity — snap target is -400, gap is 190 > SNAP_THRESHOLD
       const state: CarouselPrivateState = {
         type: "inertia",
-        carousel: { value: -210, velocity: 0, lastUpdatedAt: 0 },
+        focusedItemId: "a",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          b: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          c: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
+          a: makeItem(-50, -30, 2),
+          b: makeItem(),
+          c: makeItem(),
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
-      expect(next.type).toBe("snapping");
+      expect(next.type).toBe("settled");
+      expect(next.items.a.x.value).toBeCloseTo(-50);
+      expect(next.items.a.y.value).toBeCloseTo(-30);
+      expect(next.items.a.scale.value).toBeCloseTo(2);
     });
 
-    it("transitions to tracking on motion", () => {
+    it("stays in inertia on release (returns same reference)", () => {
+      const reduce = makeReduce();
+      const state = makeInertiaState();
+      expect(reduce(state, { type: "release" })).toBe(state);
+    });
+
+    it("transitions to scrolling on carousel motion", () => {
       const reduce = makeReduce();
       const next = reduce(makeInertiaState(), motion({ dx: -30 }));
-      expect(next.type).toBe("tracking");
+      expect(next.type).toBe("scrolling");
     });
 
-    it("transitions to snapping on release", () => {
+    it("transitions to focused on pinch", () => {
       const reduce = makeReduce();
-      const next = reduce(makeInertiaState(), { type: "release" });
-      expect(next.type).toBe("snapping");
+      // Item a is at scale=2 > 1, so motion on it resolves to focused
+      const next = reduce(makeInertiaState(), motion({ itemId: "a", dx: 10 }));
+      expect(next.type).toBe("focused");
+      if (next.type === "focused") expect(next.focusedItemId).toBe("a");
     });
   });
 
@@ -367,31 +419,14 @@ describe("createCarouselReduce", () => {
         carousel: { value: carouselX, velocity: 0, lastUpdatedAt: 0 },
         carouselTarget,
         items: {
-          a: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1.5, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          b: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          c: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-        },
-        itemTargets: {
-          a: { x: 0, y: 0, scale: 1 },
-          b: { x: 0, y: 0, scale: 1 },
-          c: { x: 0, y: 0, scale: 1 },
+          a: makeItem(-50, 0, 1.5),
+          b: makeItem(),
+          c: makeItem(),
         },
       };
     }
 
-    it("advances spring on tick when far from target", () => {
+    it("advances carousel spring on tick when far from target", () => {
       const reduce = makeReduce();
       const after = reduce(makeSnappingState(-200, -400), {
         type: "tick",
@@ -402,34 +437,38 @@ describe("createCarouselReduce", () => {
       expect(after.carousel.value).toBeGreaterThan(-400);
     });
 
-    it("springs item scale toward 1", () => {
+    it("items do not spring during snapping (stay at current position)", () => {
       const reduce = makeReduce();
       const after = reduce(makeSnappingState(), {
         type: "tick",
         timestamp: 16,
       });
       if (after.type === "snapping") {
-        expect(after.items.a.scale.value).toBeLessThan(1.5);
-        expect(after.items.a.scale.value).toBeGreaterThan(1);
+        expect(after.items.a.scale.value).toBe(1.5); // unchanged
+        expect(after.items.a.x.value).toBe(-50); // unchanged
       }
     });
 
-    it("transitions to settled when within snap threshold", () => {
+    it("transitions to settled when carousel is within snap threshold", () => {
       const reduce = makeReduce();
-      // Carousel is already very close to target
       const state = makeSnappingState(-399.9, -400);
-      // Override item scale to be near 1 as well
-      (state.items.a.scale as { value: number }).value = 1.005;
       const after = reduce(state, { type: "tick", timestamp: 16 });
       expect(after.type).toBe("settled");
       expect(after.carousel.value).toBeCloseTo(-400);
     });
 
+    it("items stay at their current positions on settling (no reset to neutral)", () => {
+      const reduce = makeReduce();
+      const state = makeSnappingState(-399.9, -400);
+      const after = reduce(state, { type: "tick", timestamp: 16 });
+      expect(after.type).toBe("settled");
+      expect(after.items.a.scale.value).toBe(1.5);
+      expect(after.items.a.x.value).toBe(-50);
+    });
+
     it("converges carousel to snap target over many frames", () => {
       const reduce = makeReduce();
       let state: CarouselPrivateState = makeSnappingState(-200, -400);
-      // Override item to avoid blocking convergence
-      (state.items.a.scale as { value: number }).value = 1;
       for (let i = 1; i <= 300; i++) {
         state = reduce(state, { type: "tick", timestamp: i * 16 });
         if (state.type === "settled") break;
@@ -438,53 +477,27 @@ describe("createCarouselReduce", () => {
       expect(state.carousel.value).toBeCloseTo(-400, 0);
     });
 
-    it("converges item scale to 1 over many frames", () => {
-      const reduce = makeReduce();
-      let state: CarouselPrivateState = {
-        type: "snapping",
-        carousel: { value: -400, velocity: 0, lastUpdatedAt: 0 },
-        carouselTarget: -400,
-        items: {
-          a: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 2, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          b: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-          c: {
-            x: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            y: { value: 0, velocity: 0, lastUpdatedAt: 0 },
-            scale: { value: 1, logVelocity: 0, lastUpdatedAt: 0 },
-          },
-        },
-        itemTargets: {
-          a: { x: 0, y: 0, scale: 1 },
-          b: { x: 0, y: 0, scale: 1 },
-          c: { x: 0, y: 0, scale: 1 },
-        },
-      };
-      for (let i = 1; i <= 300; i++) {
-        state = reduce(state, { type: "tick", timestamp: i * 16 });
-        if (state.type === "settled") break;
-      }
-      expect(state.type).toBe("settled");
-      expect(state.items.a.scale.value).toBeCloseTo(1, 1);
-    });
-
-    it("stays snapping on release", () => {
+    it("stays snapping on release (returns same reference)", () => {
       const reduce = makeReduce();
       const state = makeSnappingState();
       expect(reduce(state, { type: "release" })).toBe(state);
     });
 
-    it("transitions to tracking on motion", () => {
+    it("transitions to scrolling on motion without itemId", () => {
       const reduce = makeReduce();
       const after = reduce(makeSnappingState(), motion({ dx: -20 }));
-      expect(after.type).toBe("tracking");
+      expect(after.type).toBe("scrolling");
+    });
+
+    it("transitions to focused when a zoomed-in item is panned during snapping", () => {
+      const reduce = makeReduce();
+      // Item a is at scale=1.5 > 1, so motion on it resolves to focused
+      const after = reduce(
+        makeSnappingState(),
+        motion({ itemId: "a", dx: 10 }),
+      );
+      expect(after.type).toBe("focused");
+      if (after.type === "focused") expect(after.focusedItemId).toBe("a");
     });
   });
 
