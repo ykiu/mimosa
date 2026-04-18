@@ -1,10 +1,4 @@
-import type {
-  InterpreterEvent,
-  State,
-  SnapConfig,
-  StoreAction,
-  Reducer,
-} from "../types.js";
+import type { InterpreterEvent, State, StoreAction, Model } from "../types.js";
 import {
   type LinearPrimitive,
   type ExponentialPrimitive,
@@ -67,22 +61,18 @@ function hasSignificantVelocity(transform: Transform): boolean {
   );
 }
 
+export type Options = {
+  x?: (value: number) => number;
+  y?: (value: number) => number;
+};
+
 function computeSnapTarget(
-  snap: SnapConfig,
+  options: Options,
   transform: Transform,
 ): { x: number; y: number } {
   return {
-    x: snap.x ? snap.x(transform.x.value) : transform.x.value,
-    y: snap.y ? snap.y(transform.y.value) : transform.y.value,
-  };
-}
-
-// TODO: Move to a new module
-export function toPublicState({ transform }: TransformPrivateState): State {
-  return {
-    transformX: transform.x.value,
-    transformY: transform.y.value,
-    scale: transform.scale.value,
+    x: options.x ? options.x(transform.x.value) : transform.x.value,
+    y: options.y ? options.y(transform.y.value) : transform.y.value,
   };
 }
 
@@ -96,9 +86,22 @@ export type TransformPrivateState =
     }
   | { type: "settled"; transform: Transform };
 
-export function createReduce(
-  snap?: SnapConfig,
-): Reducer<TransformPrivateState> {
+function toPublicState({ transform }: TransformPrivateState): State {
+  return {
+    transformX: transform.x.value,
+    transformY: transform.y.value,
+    scale: transform.scale.value,
+  };
+}
+
+export function createModel(
+  options?: Options,
+): Model<State, TransformPrivateState, StoreAction> {
+  const reduce = createReduce(options);
+  return { reduce, publish: toPublicState };
+}
+
+function createReduce(options?: Options) {
   return function reduce(
     state: TransformPrivateState | undefined = {
       type: "settled",
@@ -120,8 +123,8 @@ export function createReduce(
               transform: applyMotion(state.transform, action),
             };
           case "release": {
-            if (snap) {
-              const target = computeSnapTarget(snap, state.transform);
+            if (options) {
+              const target = computeSnapTarget(options, state.transform);
               return {
                 ...state,
                 type: "snapping",
@@ -145,8 +148,8 @@ export function createReduce(
               transform: applyMotion(state.transform, action),
             };
           case "release": {
-            if (snap) {
-              const target = computeSnapTarget(snap, state.transform);
+            if (options) {
+              const target = computeSnapTarget(options, state.transform);
               return {
                 ...state,
                 type: "snapping",
@@ -163,8 +166,8 @@ export function createReduce(
                 transform: advanceInertia(state.transform, action.timestamp),
               };
             }
-            if (snap) {
-              const target = computeSnapTarget(snap, state.transform);
+            if (options) {
+              const target = computeSnapTarget(options, state.transform);
               const gapX = Math.abs(target.x - state.transform.x.value);
               const gapY = Math.abs(target.y - state.transform.y.value);
               if (gapX < SNAP_THRESHOLD && gapY < SNAP_THRESHOLD) {

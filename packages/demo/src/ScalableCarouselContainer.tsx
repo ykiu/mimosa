@@ -3,8 +3,7 @@ import {
   touchInterpreter,
   mouseDragInterpreter,
   createStore,
-  createCarouselReduce,
-  toCarouselPublicState,
+  createCarouselModel,
   type MountedInterpreter,
   type InterpreterEvent,
   mouseWheelInterpreter,
@@ -62,12 +61,11 @@ export function ScalableCarouselContainer({
     }
 
     const store = createStore(
-      createCarouselReduce({
+      createCarouselModel({
         itemWidth,
         itemHeight,
         itemIds: items.map((i) => i.id),
       }),
-      toCarouselPublicState,
     )(allInterpreters);
 
     const unsubscribe = store.subscribe((state) => {

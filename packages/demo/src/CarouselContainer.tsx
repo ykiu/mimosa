@@ -4,8 +4,7 @@ import {
   mouseDragInterpreter,
   createStore,
   createRenderer,
-  createReduce,
-  toPublicState,
+  createModel,
 } from "@mimosa/core";
 
 type Props = {
@@ -39,10 +38,7 @@ export function CarouselContainer({
       touchInterpreter()(container),
       mouseDragInterpreter()(container),
     ];
-    const store = createStore(
-      createReduce({ x: snapX }),
-      toPublicState,
-    )(interpreters);
+    const store = createStore(createModel({ x: snapX }))(interpreters);
     const renderer = createRenderer()(content, store);
 
     return () => {

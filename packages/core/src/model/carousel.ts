@@ -1,4 +1,4 @@
-import type { InterpreterEvent, StoreAction, Reducer } from "../types.js";
+import type { InterpreterEvent, StoreAction, Model } from "../types.js";
 import {
   type LinearPrimitive,
   type ExponentialPrimitive,
@@ -400,7 +400,7 @@ function isCarouselSettled(carousel: LinearPrimitive, target: number): boolean {
 // Public API
 // ---------------------------------------------------------------------------
 
-export function toCarouselPublicState(
+function toCarouselPublicState(
   state: CarouselPrivateState,
 ): CarouselPublicState {
   const items: Record<
@@ -417,9 +417,14 @@ export function toCarouselPublicState(
   return { carouselTranslateX: state.carousel.value, items };
 }
 
-export function createCarouselReduce(
+export function createCarouselModel(
   config: CarouselConfig,
-): Reducer<CarouselPrivateState> {
+): Model<CarouselPublicState, CarouselPrivateState, StoreAction> {
+  const reduce = createCarouselReduce(config);
+  return { reduce, publish: toCarouselPublicState };
+}
+
+function createCarouselReduce(config: CarouselConfig) {
   const { itemWidth, itemHeight, itemIds } = config;
 
   function makeInitialItems(): Record<string, ItemPrivateState> {

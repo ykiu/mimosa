@@ -4,17 +4,16 @@ import type {
   MountedInterpreter,
   Callback,
   UnsubscribeFn,
-  Reducer,
+  Model,
 } from "../types.js";
 
 export function createStore<TPrivateState, TState>(
-  reduce: Reducer<TPrivateState>,
-  toPublicState: (privateState: TPrivateState) => TState,
+  model: Model<TState, TPrivateState>,
 ): Store<TState> {
   return (interpreters: MountedInterpreter[]): MountedStore<TState> => {
     const callbacks = new Set<Callback<TState>>();
 
-    let state = reduce(undefined, { type: "tick", timestamp: 0 });
+    let state = model.reduce(undefined, { type: "tick", timestamp: 0 });
     let lastEmittedState: TPrivateState | undefined;
 
     let rafId: number | null = null;
@@ -22,13 +21,13 @@ export function createStore<TPrivateState, TState>(
 
     function loop(timestamp: number) {
       if (!mounted) return;
-      state = reduce(state, { type: "tick", timestamp });
+      state = model.reduce(state, { type: "tick", timestamp });
       if (state === lastEmittedState) {
         rafId = null;
         return;
       }
       lastEmittedState = state;
-      const publicState = toPublicState(state);
+      const publicState = model.publish(state);
       for (const cb of callbacks) cb(publicState);
       rafId = requestAnimationFrame(loop);
     }
@@ -42,7 +41,7 @@ export function createStore<TPrivateState, TState>(
     // Subscribe to all interpreters
     const unsubscribers = interpreters.map((interp) =>
       interp.subscribe((event) => {
-        state = reduce(state, event);
+        state = model.reduce(state, event);
         resumeLoop();
       }),
     );

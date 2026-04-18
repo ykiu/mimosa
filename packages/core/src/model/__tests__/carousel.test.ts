@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  createCarouselReduce,
-  toCarouselPublicState,
+  createCarouselModel,
   type CarouselPrivateState,
   type ItemPrivateState,
 } from "../carousel.js";
@@ -10,12 +9,14 @@ const ITEM_WIDTH = 400;
 const ITEM_HEIGHT = 600;
 const ITEM_IDS = ["a", "b", "c"] as const;
 
+const DEFAULT_CONFIG = {
+  itemWidth: ITEM_WIDTH,
+  itemHeight: ITEM_HEIGHT,
+  itemIds: ITEM_IDS,
+} as const;
+
 function makeReduce() {
-  return createCarouselReduce({
-    itemWidth: ITEM_WIDTH,
-    itemHeight: ITEM_HEIGHT,
-    itemIds: ITEM_IDS,
-  });
+  return createCarouselModel(DEFAULT_CONFIG).reduce;
 }
 
 function makeItemTransform(
@@ -104,7 +105,7 @@ function motion(
 // Initial state
 // ---------------------------------------------------------------------------
 
-describe("createCarouselReduce", () => {
+describe("createCarouselModel", () => {
   describe("initial state", () => {
     it("starts settled with carousel at 0 and all items settled at neutral", () => {
       const reduce = makeReduce();
@@ -679,13 +680,14 @@ describe("createCarouselReduce", () => {
   });
 
   // -------------------------------------------------------------------------
-  // toCarouselPublicState
+  // publish
   // -------------------------------------------------------------------------
 
-  describe("toCarouselPublicState", () => {
+  describe("publish", () => {
     it("maps private state to public state correctly", () => {
+      const { publish } = createCarouselModel(DEFAULT_CONFIG);
       const state = settled(-400, { a: { x: -10, y: 5, scale: 1.5 } });
-      const pub = toCarouselPublicState(state);
+      const pub = publish(state);
       expect(pub.carouselTranslateX).toBe(-400);
       expect(pub.items.a).toEqual({
         transformX: -10,

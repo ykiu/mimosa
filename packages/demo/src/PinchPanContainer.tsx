@@ -5,8 +5,7 @@ import {
   mouseWheelInterpreter,
   createStore,
   createRenderer,
-  createReduce,
-  toPublicState,
+  createModel,
 } from "@mimosa/core";
 
 type Props = {
@@ -29,7 +28,7 @@ export function PinchPanContainer({ children, className }: Props) {
       mouseWheelInterpreter()(container),
     ];
 
-    const store = createStore(createReduce(), toPublicState)(interpreters);
+    const store = createStore(createModel())(interpreters);
     const renderer = createRenderer()(content, store);
 
     return () => {
