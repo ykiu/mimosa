@@ -5,8 +5,8 @@ import {
   createExponentialPrimitive,
 } from "../primitives.js";
 
-function makeReduce(options?: Parameters<typeof createModel>[0]) {
-  return createModel(options).reduce;
+function makeReduce(config?: Parameters<typeof createModel>[0]) {
+  return createModel(config).reduce;
 }
 
 function makeTransform(x = 0, y = 0, scale = 1) {
@@ -132,17 +132,35 @@ describe("createModel", () => {
       expect(state.transform.scale.value).toBeCloseTo(2);
     });
 
-    it("transitions to inertia on release without snap", () => {
+    it("transitions to settled on release with no velocity and no snap", () => {
       const reduce = makeReduce();
       const state = reduce(
         { type: "tracking", transform: makeTransform() },
+        { type: "release" },
+      );
+      expect(state.type).toBe("settled");
+    });
+
+    it("transitions to inertia on release when velocity is significant", () => {
+      const reduce = makeReduce();
+      const state = reduce(
+        {
+          type: "tracking",
+          transform: makeTransformWithVelocity(5, 0),
+        },
         { type: "release" },
       );
       expect(state.type).toBe("inertia");
     });
 
     it("transitions to snapping on release with snap", () => {
-      const reduce = makeReduce({ x: (v) => Math.round(v / 100) * 100 });
+      const reduce = makeReduce({
+        snapTarget: (t) => ({
+          x: Math.round(t.x.value / 100) * 100,
+          y: t.y.value,
+          scale: t.scale.value,
+        }),
+      });
       const state = reduce(
         { type: "tracking", transform: makeTransform(60) },
         { type: "release" },
@@ -211,7 +229,13 @@ describe("createModel", () => {
     });
 
     it("transitions to snapping on release with snap", () => {
-      const reduce = makeReduce({ x: (v) => Math.round(v / 100) * 100 });
+      const reduce = makeReduce({
+        snapTarget: (t) => ({
+          x: Math.round(t.x.value / 100) * 100,
+          y: t.y.value,
+          scale: t.scale.value,
+        }),
+      });
       const state = reduce(
         { type: "inertia", transform: makeTransformWithVelocity(0, 0, 60) },
         { type: "release" },
@@ -220,7 +244,13 @@ describe("createModel", () => {
     });
 
     it("transitions to snapping on tick when velocity decays and snap target is far", () => {
-      const reduce = makeReduce({ x: (v) => Math.round(v / 100) * 100 });
+      const reduce = makeReduce({
+        snapTarget: (t) => ({
+          x: Math.round(t.x.value / 100) * 100,
+          y: t.y.value,
+          scale: t.scale.value,
+        }),
+      });
       // at x=60, no velocity — snap target is 100, gap is 40 > SNAP_THRESHOLD
       const state = reduce(
         { type: "inertia", transform: makeTransformWithVelocity(0, 0, 60) },
@@ -230,7 +260,13 @@ describe("createModel", () => {
     });
 
     it("transitions to settled on tick when snap target is already within threshold", () => {
-      const reduce = makeReduce({ x: (v) => Math.round(v / 100) * 100 });
+      const reduce = makeReduce({
+        snapTarget: (t) => ({
+          x: Math.round(t.x.value / 100) * 100,
+          y: t.y.value,
+          scale: t.scale.value,
+        }),
+      });
       // at x=100.1, snap target is 100, gap is 0.1 < SNAP_THRESHOLD (0.5)
       const state = reduce(
         { type: "inertia", transform: makeTransformWithVelocity(0, 0, 100.1) },
@@ -249,7 +285,7 @@ describe("createModel", () => {
       return {
         type: "snapping",
         transform: makeTransform(x),
-        target: { x: targetX, y: 0 },
+        target: { x: targetX, y: 0, scale: 1 },
       };
     }
 

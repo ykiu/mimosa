@@ -1,16 +1,16 @@
 import type { InterpreterEvent, StoreAction, Model } from "../types.js";
 import {
   type LinearPrimitive,
-  type ExponentialPrimitive,
   createLinearPrimitive,
   createExponentialPrimitive,
   applyLinearDelta,
-  applyExponentialFactor,
-  advanceLinearInertia,
-  advanceExponentialInertia,
   advanceLinearSpring,
-  advanceExponentialSpring,
 } from "./primitives.js";
+import {
+  type TransformPrivateState,
+  createTransformReduce,
+  settleTransform,
+} from "./transform.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -39,31 +39,9 @@ export type CarouselPublicState = {
 // Internal types
 // ---------------------------------------------------------------------------
 
-type ItemTransform = {
-  x: LinearPrimitive;
-  y: LinearPrimitive;
-  scale: ExponentialPrimitive;
-};
-
-type ItemSnapTarget = { x: number; y: number; scale: number };
-
-/**
- * Per-item phase. Independent of the carousel-level phase.
- *
- *   settled  — at rest.
- *   tracking — actively receiving gesture input (while carousel is locked).
- *   inertia  — coasting after release.
- *   snapping — spring-snapping back to a target (e.g. under-zoom recovery).
- */
-export type ItemPrivateState =
-  | { type: "settled"; transform: ItemTransform }
-  | { type: "tracking"; transform: ItemTransform }
-  | { type: "inertia"; transform: ItemTransform }
-  | { type: "snapping"; transform: ItemTransform; target: ItemSnapTarget };
-
 /**
  * Carousel-level phase. Tracks only the carousel strip's motion.
- * Item-level concerns live in ItemPrivateState, one per item.
+ * Item-level concerns live in TransformPrivateState, one per item.
  *
  *   settled  — strip is at rest.
  *   scrolling — user is dragging the strip.
@@ -75,23 +53,23 @@ export type CarouselPrivateState =
   | {
       type: "settled";
       carousel: LinearPrimitive;
-      items: Record<string, ItemPrivateState>;
+      items: Record<string, TransformPrivateState>;
     }
   | {
       type: "scrolling";
       carousel: LinearPrimitive;
-      items: Record<string, ItemPrivateState>;
+      items: Record<string, TransformPrivateState>;
     }
   | {
       type: "snapping";
       carousel: LinearPrimitive;
       carouselTarget: number;
-      items: Record<string, ItemPrivateState>;
+      items: Record<string, TransformPrivateState>;
     }
   | {
       type: "locked";
       carousel: LinearPrimitive;
-      items: Record<string, ItemPrivateState>;
+      items: Record<string, TransformPrivateState>;
     };
 
 type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
@@ -101,13 +79,9 @@ type MotionEvent = Extract<InterpreterEvent, { type: "motion" }>;
 // ---------------------------------------------------------------------------
 
 const CAROUSEL_SNAP_THRESHOLD = 0.5; // px
-const ITEM_SNAP_THRESHOLD = 0.5; // px
-const ITEM_SCALE_SNAP_THRESHOLD = 0.001;
-const VELOCITY_THRESHOLD = 0.01; // px/ms
-const LOG_VELOCITY_THRESHOLD = 0.0001; // log-units/ms
 
 // ---------------------------------------------------------------------------
-// Item transform helpers
+// Item bounds helper
 // ---------------------------------------------------------------------------
 
 /**
@@ -134,180 +108,6 @@ function getItemBounds(
   };
 }
 
-function applyMotionToItem(
-  transform: ItemTransform,
-  motion: MotionEvent,
-  itemWidth: number,
-  itemHeight: number,
-): ItemTransform {
-  const { dx, dy, dScale, originX, originY, timestamp } = motion;
-  const tx = transform.x.value;
-  const ty = transform.y.value;
-  const newScale = transform.scale.value * dScale;
-
-  const proposedTx = originX + (tx - originX) * dScale + dx;
-  const proposedTy = originY + (ty - originY) * dScale + dy;
-
-  const bounds = getItemBounds(newScale, itemWidth, itemHeight);
-  const clampedTx = Math.max(bounds.minX, Math.min(bounds.maxX, proposedTx));
-  const clampedTy = Math.max(bounds.minY, Math.min(bounds.maxY, proposedTy));
-
-  return {
-    x: applyLinearDelta(transform.x, clampedTx - tx, timestamp),
-    y: applyLinearDelta(transform.y, clampedTy - ty, timestamp),
-    scale: applyExponentialFactor(transform.scale, dScale, timestamp),
-  };
-}
-
-function itemHasSignificantVelocity(transform: ItemTransform): boolean {
-  return (
-    Math.abs(transform.x.velocity) > VELOCITY_THRESHOLD ||
-    Math.abs(transform.y.velocity) > VELOCITY_THRESHOLD ||
-    Math.abs(transform.scale.logVelocity) > LOG_VELOCITY_THRESHOLD
-  );
-}
-
-function advanceItemInertia(
-  transform: ItemTransform,
-  timestamp: number,
-): ItemTransform {
-  return {
-    x: advanceLinearInertia(transform.x, timestamp),
-    y: advanceLinearInertia(transform.y, timestamp),
-    scale: advanceExponentialInertia(transform.scale, timestamp),
-  };
-}
-
-function advanceItemSpring(
-  transform: ItemTransform,
-  target: ItemSnapTarget,
-  timestamp: number,
-): ItemTransform {
-  return {
-    x: advanceLinearSpring(transform.x, target.x, timestamp),
-    y: advanceLinearSpring(transform.y, target.y, timestamp),
-    scale: advanceExponentialSpring(transform.scale, target.scale, timestamp),
-  };
-}
-
-function isItemSnapSettled(
-  transform: ItemTransform,
-  target: ItemSnapTarget,
-): boolean {
-  return (
-    Math.abs(transform.x.value - target.x) < ITEM_SNAP_THRESHOLD &&
-    Math.abs(transform.y.value - target.y) < ITEM_SNAP_THRESHOLD &&
-    Math.abs(transform.scale.value - target.scale) < ITEM_SCALE_SNAP_THRESHOLD
-  );
-}
-
-function settleItemTransform(transform: ItemTransform): ItemTransform {
-  return {
-    x: {
-      value: transform.x.value,
-      velocity: 0,
-      lastUpdatedAt: transform.x.lastUpdatedAt,
-    },
-    y: {
-      value: transform.y.value,
-      velocity: 0,
-      lastUpdatedAt: transform.y.lastUpdatedAt,
-    },
-    scale: {
-      value: transform.scale.value,
-      logVelocity: 0,
-      lastUpdatedAt: transform.scale.lastUpdatedAt,
-    },
-  };
-}
-
-function snapItemToTarget(
-  target: ItemSnapTarget,
-  timestamp: number,
-): ItemTransform {
-  return {
-    x: { value: target.x, velocity: 0, lastUpdatedAt: timestamp },
-    y: { value: target.y, velocity: 0, lastUpdatedAt: timestamp },
-    scale: { value: target.scale, logVelocity: 0, lastUpdatedAt: timestamp },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Item-level phase transitions
-// ---------------------------------------------------------------------------
-
-function releaseItem(
-  item: Extract<ItemPrivateState, { type: "tracking" }>,
-): ItemPrivateState {
-  if (item.transform.scale.value < 1) {
-    return {
-      type: "snapping",
-      transform: item.transform,
-      target: { x: 0, y: 0, scale: 1 },
-    };
-  }
-  if (itemHasSignificantVelocity(item.transform)) {
-    return { type: "inertia", transform: item.transform };
-  }
-  return { type: "settled", transform: settleItemTransform(item.transform) };
-}
-
-function advanceItem(
-  item: ItemPrivateState,
-  timestamp: number,
-): ItemPrivateState {
-  switch (item.type) {
-    case "settled":
-    case "tracking":
-      return item;
-    case "inertia": {
-      if (itemHasSignificantVelocity(item.transform)) {
-        return {
-          ...item,
-          transform: advanceItemInertia(item.transform, timestamp),
-        };
-      }
-      if (item.transform.scale.value < 1) {
-        return {
-          type: "snapping",
-          transform: item.transform,
-          target: { x: 0, y: 0, scale: 1 },
-        };
-      }
-      return {
-        type: "settled",
-        transform: settleItemTransform(item.transform),
-      };
-    }
-    case "snapping": {
-      if (isItemSnapSettled(item.transform, item.target)) {
-        return {
-          type: "settled",
-          transform: snapItemToTarget(item.target, timestamp),
-        };
-      }
-      return {
-        ...item,
-        transform: advanceItemSpring(item.transform, item.target, timestamp),
-      };
-    }
-  }
-}
-
-function advanceAllItems(
-  items: Record<string, ItemPrivateState>,
-  timestamp: number,
-): Record<string, ItemPrivateState> {
-  let changed = false;
-  const result: Record<string, ItemPrivateState> = {};
-  for (const [id, item] of Object.entries(items)) {
-    const next = advanceItem(item, timestamp);
-    result[id] = next;
-    if (next !== item) changed = true;
-  }
-  return changed ? result : items;
-}
-
 // ---------------------------------------------------------------------------
 // Routing helpers
 // ---------------------------------------------------------------------------
@@ -320,7 +120,7 @@ function advanceAllItems(
  */
 function resolveMotionTarget(
   action: MotionEvent,
-  items: Record<string, ItemPrivateState>,
+  items: Record<string, TransformPrivateState>,
 ): { type: "locked"; itemId: string } | { type: "scrolling" } {
   if (action.itemId !== undefined) {
     const item = items[action.itemId];
@@ -336,47 +136,12 @@ function resolveMotionTarget(
 }
 
 function findTrackingItemId(
-  items: Record<string, ItemPrivateState>,
+  items: Record<string, TransformPrivateState>,
 ): string | undefined {
   for (const [id, item] of Object.entries(items)) {
     if (item.type === "tracking") return id;
   }
   return undefined;
-}
-
-/**
- * Transitions items into the locked state: starts tracking targetItemId and
- * immediately settles any other items that are in motion (one active item at a time).
- */
-function lockItems(
-  items: Record<string, ItemPrivateState>,
-  targetItemId: string,
-  action: MotionEvent,
-  itemWidth: number,
-  itemHeight: number,
-): Record<string, ItemPrivateState> {
-  const result: Record<string, ItemPrivateState> = {};
-  for (const [id, item] of Object.entries(items)) {
-    if (id === targetItemId) {
-      result[id] = {
-        type: "tracking",
-        transform: applyMotionToItem(
-          item.transform,
-          action,
-          itemWidth,
-          itemHeight,
-        ),
-      };
-    } else if (item.type !== "settled") {
-      result[id] = {
-        type: "settled",
-        transform: settleItemTransform(item.transform),
-      };
-    } else {
-      result[id] = item;
-    }
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -427,8 +192,13 @@ export function createCarouselModel(
 function createCarouselReduce(config: CarouselConfig) {
   const { itemWidth, itemHeight, itemIds } = config;
 
-  function makeInitialItems(): Record<string, ItemPrivateState> {
-    const items: Record<string, ItemPrivateState> = {};
+  const itemReduce = createTransformReduce({
+    bounds: (scale) => getItemBounds(scale, itemWidth, itemHeight),
+    snapTarget: (t) => (t.scale.value < 1 ? { x: 0, y: 0, scale: 1 } : null),
+  });
+
+  function makeInitialItems(): Record<string, TransformPrivateState> {
+    const items: Record<string, TransformPrivateState> = {};
     for (const id of itemIds) {
       items[id] = {
         type: "settled",
@@ -440,6 +210,45 @@ function createCarouselReduce(config: CarouselConfig) {
       };
     }
     return items;
+  }
+
+  /**
+   * Transitions items into the locked state: starts tracking targetItemId and
+   * immediately settles any other items that are in motion (one active item at a time).
+   */
+  function lockItems(
+    items: Record<string, TransformPrivateState>,
+    targetItemId: string,
+    action: MotionEvent,
+  ): Record<string, TransformPrivateState> {
+    const result: Record<string, TransformPrivateState> = {};
+    for (const [id, item] of Object.entries(items)) {
+      if (id === targetItemId) {
+        result[id] = itemReduce(item, action);
+      } else if (item.type !== "settled") {
+        result[id] = {
+          type: "settled",
+          transform: settleTransform(item.transform),
+        };
+      } else {
+        result[id] = item;
+      }
+    }
+    return result;
+  }
+
+  function advanceAllItems(
+    items: Record<string, TransformPrivateState>,
+    timestamp: number,
+  ): Record<string, TransformPrivateState> {
+    let changed = false;
+    const result: Record<string, TransformPrivateState> = {};
+    for (const [id, item] of Object.entries(items)) {
+      const next = itemReduce(item, { type: "tick", timestamp });
+      result[id] = next;
+      if (next !== item) changed = true;
+    }
+    return changed ? result : items;
   }
 
   return function reduce(
@@ -459,13 +268,7 @@ function createCarouselReduce(config: CarouselConfig) {
               return {
                 type: "locked",
                 carousel: state.carousel,
-                items: lockItems(
-                  state.items,
-                  target.itemId,
-                  action,
-                  itemWidth,
-                  itemHeight,
-                ),
+                items: lockItems(state.items, target.itemId, action),
               };
             }
             return {
@@ -572,23 +375,11 @@ function createCarouselReduce(config: CarouselConfig) {
             const trackingId = findTrackingItemId(state.items);
             if (trackingId === undefined || action.itemId !== trackingId)
               return state;
-            const item = state.items[trackingId] as Extract<
-              ItemPrivateState,
-              { type: "tracking" }
-            >;
             return {
               ...state,
               items: {
                 ...state.items,
-                [trackingId]: {
-                  type: "tracking",
-                  transform: applyMotionToItem(
-                    item.transform,
-                    action,
-                    itemWidth,
-                    itemHeight,
-                  ),
-                },
+                [trackingId]: itemReduce(state.items[trackingId], action),
               },
             };
           }
@@ -601,14 +392,13 @@ function createCarouselReduce(config: CarouselConfig) {
                 items: state.items,
               };
             }
-            const item = state.items[trackingId] as Extract<
-              ItemPrivateState,
-              { type: "tracking" }
-            >;
             return {
               type: "settled",
               carousel: state.carousel,
-              items: { ...state.items, [trackingId]: releaseItem(item) },
+              items: {
+                ...state.items,
+                [trackingId]: itemReduce(state.items[trackingId], action),
+              },
             };
           }
           case "tick": {

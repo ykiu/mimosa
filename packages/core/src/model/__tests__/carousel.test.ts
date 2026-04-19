@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  createCarouselModel,
-  type CarouselPrivateState,
-  type ItemPrivateState,
-} from "../carousel.js";
+import { createCarouselModel, type CarouselPrivateState } from "../carousel.js";
+import type { TransformPrivateState } from "../index.js";
 
 const ITEM_WIDTH = 400;
 const ITEM_HEIGHT = 600;
@@ -33,7 +30,7 @@ function makeItemTransform(
   };
 }
 
-function makeSettledItem(x = 0, y = 0, scale = 1): ItemPrivateState {
+function makeSettledItem(x = 0, y = 0, scale = 1): TransformPrivateState {
   return { type: "settled", transform: makeItemTransform(x, y, scale) };
 }
 
@@ -42,14 +39,14 @@ function makeInertiaItem(
   y = 0,
   scale = 1,
   velocity = 0,
-): ItemPrivateState {
+): TransformPrivateState {
   return {
     type: "inertia",
     transform: makeItemTransform(x, y, scale, velocity),
   };
 }
 
-function makeTrackingItem(x = 0, y = 0, scale = 1): ItemPrivateState {
+function makeTrackingItem(x = 0, y = 0, scale = 1): TransformPrivateState {
   return { type: "tracking", transform: makeItemTransform(x, y, scale) };
 }
 
@@ -59,7 +56,7 @@ function settled(
     Record<string, { x?: number; y?: number; scale?: number }>
   > = {},
 ): CarouselPrivateState {
-  const items: Record<string, ItemPrivateState> = {};
+  const items: Record<string, TransformPrivateState> = {};
   for (const id of ITEM_IDS) {
     const { x = 0, y = 0, scale = 1 } = itemOverrides[id] ?? {};
     items[id] = {
