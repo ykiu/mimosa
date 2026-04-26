@@ -54,10 +54,15 @@ export type StoreAction =
  * The Store uses reference equality (`===`) to detect when the state has settled and pauses the
  * animation loop accordingly. Returning a new object with identical values defeats this optimization.
  */
-export type Reducer<TPrivateState> = (
+export type Reducer<TPrivateState, TAction = StoreAction> = (
   state: TPrivateState | undefined,
-  action: StoreAction,
+  action: TAction,
 ) => TPrivateState;
+
+export interface Model<TPublicState, TPrivateState, TAction = StoreAction> {
+  reduce: Reducer<TPrivateState, TAction>;
+  publish(state: TPrivateState): TPublicState;
+}
 
 export type MountedRenderer = {
   unmount: UnmountFn;
@@ -67,8 +72,3 @@ export type Renderer<TState> = (
   element: Element,
   store: MountedStore<TState>,
 ) => MountedRenderer;
-
-export type SnapConfig = {
-  x?: (value: number) => number;
-  y?: (value: number) => number;
-};

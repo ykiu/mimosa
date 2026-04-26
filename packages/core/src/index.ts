@@ -10,7 +10,7 @@ export type {
   Store,
   MountedRenderer,
   Renderer,
-  SnapConfig,
+  Model,
 } from "./types.js";
 
 export {
@@ -20,10 +20,9 @@ export {
 } from "./interpreter/index.js";
 export { createStore } from "./store/index.js";
 export { createRenderer } from "./renderer/index.js";
-export { createReduce, toPublicState } from "./model/index.js";
 export {
-  createCarouselReduce,
-  toCarouselPublicState,
+  createModel,
+  createCarouselModel,
   type CarouselConfig,
   type CarouselPublicState,
-} from "./model/carousel.js";
+} from "./model/index.js";

@@ -5,6 +5,7 @@ import type {
   Callback,
   InterpreterEvent,
   StoreAction,
+  Model,
 } from "../../types.js";
 
 function makeMockInterpreter(): MountedInterpreter & {
@@ -32,6 +33,12 @@ function counterReduce(
 ): CounterState {
   if (action.type === "motion") return { motionCount: state.motionCount + 1 };
   return state;
+}
+
+function counterModel<TPublicState>(
+  publish: (s: CounterState) => TPublicState,
+): Model<TPublicState, CounterState> {
+  return { reduce: counterReduce, publish };
 }
 
 // Manual rAF control — lets tests trigger animation frames deterministically
@@ -67,13 +74,13 @@ describe("createStore", () => {
       firstArgs.push(state);
       return counterReduce(state, action);
     }
-    createStore(spyReduce, (s) => s)([interp]);
+    createStore({ reduce: spyReduce, publish: (s) => s })([interp]);
     expect(firstArgs[0]).toBeUndefined();
   });
 
   it("notifies subscribers on the first frame with the initial state", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (s) => s)([interp]);
+    const store = createStore(counterModel((s) => s))([interp]);
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 
@@ -86,7 +93,7 @@ describe("createStore", () => {
 
   it("pauses the loop when state reference is unchanged after a tick", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (s) => s)([interp]);
+    const store = createStore(counterModel((s) => s))([interp]);
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 
@@ -101,7 +108,7 @@ describe("createStore", () => {
 
   it("resumes the loop when an interpreter event changes state", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (s) => s)([interp]);
+    const store = createStore(counterModel((s) => s))([interp]);
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 
@@ -129,7 +136,7 @@ describe("createStore", () => {
 
   it("forwards interpreter events to the reducer before the next frame", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (s) => s)([interp]);
+    const store = createStore(counterModel((s) => s))([interp]);
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 
@@ -159,11 +166,11 @@ describe("createStore", () => {
     store.unmount();
   });
 
-  it("applies toPublicState before notifying subscribers", () => {
+  it("applies publish before notifying subscribers", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (state) => ({
-      doubled: state.motionCount * 2,
-    }))([interp]);
+    const store = createStore(
+      counterModel((state) => ({ doubled: state.motionCount * 2 })),
+    )([interp]);
 
     const snapshots: { doubled: number }[] = [];
     store.subscribe((s) => snapshots.push(s));
@@ -186,7 +193,7 @@ describe("createStore", () => {
 
   it("stops notifying after unmount", () => {
     const interp = makeMockInterpreter();
-    const store = createStore(counterReduce, (s) => s)([interp]);
+    const store = createStore(counterModel((s) => s))([interp]);
     const snapshots: CounterState[] = [];
     store.subscribe((s) => snapshots.push(s));
 

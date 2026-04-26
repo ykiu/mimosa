@@ -1,46 +1,77 @@
 import { describe, it, expect } from "vitest";
-import {
-  createCarouselReduce,
-  toCarouselPublicState,
-  type CarouselPrivateState,
-} from "../carousel.js";
+import { createCarouselModel, type CarouselPrivateState } from "../carousel.js";
+import type { TransformPrivateState } from "../index.js";
 
 const ITEM_WIDTH = 400;
 const ITEM_HEIGHT = 600;
 const ITEM_IDS = ["a", "b", "c"] as const;
 
+const DEFAULT_CONFIG = {
+  itemWidth: ITEM_WIDTH,
+  itemHeight: ITEM_HEIGHT,
+  itemIds: ITEM_IDS,
+} as const;
+
 function makeReduce() {
-  return createCarouselReduce({
-    itemWidth: ITEM_WIDTH,
-    itemHeight: ITEM_HEIGHT,
-    itemIds: ITEM_IDS,
-  });
+  return createCarouselModel(DEFAULT_CONFIG).reduce;
+}
+
+function makeItemTransform(
+  x = 0,
+  y = 0,
+  scale = 1,
+  velocity = 0,
+  logVelocity = 0,
+) {
+  return {
+    x: { value: x, velocity, lastUpdatedAt: 0 },
+    y: { value: y, velocity, lastUpdatedAt: 0 },
+    scale: { value: scale, logVelocity, lastUpdatedAt: 0 },
+  };
+}
+
+function makeSettledItem(x = 0, y = 0, scale = 1): TransformPrivateState {
+  return { type: "settled", transform: makeItemTransform(x, y, scale) };
+}
+
+function makeInertiaItem(
+  x = 0,
+  y = 0,
+  scale = 1,
+  velocity = 0,
+): TransformPrivateState {
+  return {
+    type: "inertia",
+    transform: makeItemTransform(x, y, scale, velocity),
+  };
+}
+
+function makeTrackingItem(x = 0, y = 0, scale = 1): TransformPrivateState {
+  return { type: "tracking", transform: makeItemTransform(x, y, scale) };
 }
 
 function settled(
   carouselX = 0,
-  items: Record<string, { x: number; y: number; scale: number }> = {},
+  itemOverrides: Partial<
+    Record<string, { x?: number; y?: number; scale?: number }>
+  > = {},
 ): CarouselPrivateState {
-  const defaultItems: Record<
-    string,
-    {
-      x: { value: number; velocity: number; lastUpdatedAt: number };
-      y: { value: number; velocity: number; lastUpdatedAt: number };
-      scale: { value: number; logVelocity: number; lastUpdatedAt: number };
-    }
-  > = {};
+  const items: Record<string, TransformPrivateState> = {};
   for (const id of ITEM_IDS) {
-    const { x = 0, y = 0, scale = 1 } = items[id] ?? {};
-    defaultItems[id] = {
-      x: { value: x, velocity: 0, lastUpdatedAt: NaN },
-      y: { value: y, velocity: 0, lastUpdatedAt: NaN },
-      scale: { value: scale, logVelocity: 0, lastUpdatedAt: NaN },
+    const { x = 0, y = 0, scale = 1 } = itemOverrides[id] ?? {};
+    items[id] = {
+      type: "settled",
+      transform: {
+        x: { value: x, velocity: 0, lastUpdatedAt: NaN },
+        y: { value: y, velocity: 0, lastUpdatedAt: NaN },
+        scale: { value: scale, logVelocity: 0, lastUpdatedAt: NaN },
+      },
     };
   }
   return {
     type: "settled",
     carousel: { value: carouselX, velocity: 0, lastUpdatedAt: NaN },
-    items: defaultItems,
+    items,
   };
 }
 
@@ -67,29 +98,22 @@ function motion(
   };
 }
 
-function makeItem(x = 0, y = 0, scale = 1, velocity = 0, logVelocity = 0) {
-  return {
-    x: { value: x, velocity, lastUpdatedAt: 0 },
-    y: { value: y, velocity, lastUpdatedAt: 0 },
-    scale: { value: scale, logVelocity, lastUpdatedAt: 0 },
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Initial state
 // ---------------------------------------------------------------------------
 
-describe("createCarouselReduce", () => {
+describe("createCarouselModel", () => {
   describe("initial state", () => {
-    it("starts settled with carousel at 0 and all items at neutral", () => {
+    it("starts settled with carousel at 0 and all items settled at neutral", () => {
       const reduce = makeReduce();
       const state = reduce(undefined, { type: "tick", timestamp: 0 });
       expect(state.type).toBe("settled");
       expect(state.carousel.value).toBe(0);
       for (const id of ITEM_IDS) {
-        expect(state.items[id].x.value).toBe(0);
-        expect(state.items[id].y.value).toBe(0);
-        expect(state.items[id].scale.value).toBe(1);
+        expect(state.items[id].type).toBe("settled");
+        expect(state.items[id].transform.x.value).toBe(0);
+        expect(state.items[id].transform.y.value).toBe(0);
+        expect(state.items[id].transform.scale.value).toBe(1);
       }
     });
   });
@@ -99,7 +123,7 @@ describe("createCarouselReduce", () => {
   // -------------------------------------------------------------------------
 
   describe("settled state", () => {
-    it("returns the same reference on tick (reference equality contract)", () => {
+    it("returns the same reference on tick when no items are in motion", () => {
       const reduce = makeReduce();
       const state = settled();
       const next = reduce(state, { type: "tick", timestamp: 16 });
@@ -124,29 +148,27 @@ describe("createCarouselReduce", () => {
       const state = reduce(settled(), motion({ itemId: "a", dx: -80 }));
       expect(state.type).toBe("scrolling");
       expect(state.carousel.value).toBeCloseTo(-80);
-      expect(state.items.a.x.value).toBe(0);
+      expect(state.items.a.transform.x.value).toBe(0);
     });
 
-    it("transitions to focused when a zoomed-in item is panned", () => {
+    it("transitions to locked when a zoomed-in item is panned", () => {
       const reduce = makeReduce();
-      // At scale=2, item pan bounds are x ∈ [-400, 0] and y ∈ [-600, 0].
-      // Start at (-50, -50) so both dx=10 and dy=5 move within bounds.
       const state = reduce(
         settled(0, { a: { x: -50, y: -50, scale: 2 } }),
         motion({ itemId: "a", dx: 10, dy: 5 }),
       );
-      expect(state.type).toBe("focused");
-      if (state.type === "focused") expect(state.focusedItemId).toBe("a");
-      expect(state.items.a.x.value).toBeCloseTo(-40);
-      expect(state.items.a.y.value).toBeCloseTo(-45);
-      expect(state.items.b.x.value).toBe(0);
+      expect(state.type).toBe("locked");
+      expect(state.items.a.type).toBe("tracking");
+      expect(state.items.a.transform.x.value).toBeCloseTo(-40);
+      expect(state.items.a.transform.y.value).toBeCloseTo(-45);
+      expect(state.items.b.transform.x.value).toBe(0);
     });
 
-    it("transitions to focused on pinch (dScale != 1), even when item is at scale=1", () => {
+    it("transitions to locked on pinch (dScale != 1), even when item is at scale=1", () => {
       const reduce = makeReduce();
       const state = reduce(settled(), motion({ itemId: "a", dScale: 1.5 }));
-      expect(state.type).toBe("focused");
-      if (state.type === "focused") expect(state.focusedItemId).toBe("a");
+      expect(state.type).toBe("locked");
+      expect(state.items.a.type).toBe("tracking");
     });
 
     it("treats unknown itemId as carousel motion", () => {
@@ -155,6 +177,56 @@ describe("createCarouselReduce", () => {
       expect(state.type).toBe("scrolling");
       expect(state.carousel.value).toBeCloseTo(-30);
     });
+
+    it("advances inertia items on tick (parallel operation)", () => {
+      const reduce = makeReduce();
+      const state: CarouselPrivateState = {
+        type: "settled",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeInertiaItem(-50, 0, 2, -5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const next = reduce(state, { type: "tick", timestamp: 16 });
+      expect(next.type).toBe("settled");
+      expect(next.items.a.type).toBe("inertia");
+      expect(next.items.a.transform.x.value).toBeLessThan(-50);
+    });
+
+    it("locks on an inertia item when a motion targets it", () => {
+      const reduce = makeReduce();
+      const state: CarouselPrivateState = {
+        type: "settled",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeInertiaItem(-50, 0, 2, -5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const next = reduce(state, motion({ itemId: "a", dx: 10 }));
+      expect(next.type).toBe("locked");
+      expect(next.items.a.type).toBe("tracking");
+    });
+
+    it("cancels inertia item when locking on a different item", () => {
+      const reduce = makeReduce();
+      const state: CarouselPrivateState = {
+        type: "settled",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeInertiaItem(-50, 0, 2, -5),
+          b: makeSettledItem(0, 0, 2),
+          c: makeSettledItem(),
+        },
+      };
+      const next = reduce(state, motion({ itemId: "b", dx: 5 }));
+      expect(next.type).toBe("locked");
+      expect(next.items.a.type).toBe("settled"); // cancelled
+      expect(next.items.b.type).toBe("tracking");
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -162,7 +234,7 @@ describe("createCarouselReduce", () => {
   // -------------------------------------------------------------------------
 
   describe("scrolling state", () => {
-    it("returns the same reference on tick", () => {
+    it("returns the same reference on tick when no items are in motion", () => {
       const reduce = makeReduce();
       const state = reduce(settled(), motion({ dx: -10 }));
       expect(state.type).toBe("scrolling");
@@ -179,7 +251,6 @@ describe("createCarouselReduce", () => {
 
     it("snap target is the nearest item boundary", () => {
       const reduce = makeReduce();
-      // Swiped more than halfway to item 1 → should snap to -400
       let state = reduce(settled(), motion({ dx: -210 }));
       state = reduce(state, { type: "release" });
       expect(state.type).toBe("snapping");
@@ -199,7 +270,6 @@ describe("createCarouselReduce", () => {
 
     it("snap target is clamped to the last item boundary", () => {
       const reduce = makeReduce();
-      // Swiped well past the last item (index 2, target = -800)
       let state = reduce(settled(-800), motion({ dx: -1000 }));
       state = reduce(state, { type: "release" });
       if (state.type === "snapping") {
@@ -207,21 +277,39 @@ describe("createCarouselReduce", () => {
       }
     });
 
-    it("transitions to focused on pinch mid-scroll", () => {
+    it("does not transition to locked on pinch mid-scroll (locked only from settled)", () => {
       const reduce = makeReduce();
       let state = reduce(settled(), motion({ dx: -50 }));
       expect(state.type).toBe("scrolling");
       state = reduce(state, motion({ itemId: "a", dScale: 1.5 }));
-      expect(state.type).toBe("focused");
+      // Stays scrolling; carousel advances by dx (0 in this case)
+      expect(state.type).toBe("scrolling");
+    });
+
+    it("advances inertia items on tick while scrolling (parallel operation)", () => {
+      const reduce = makeReduce();
+      const state: CarouselPrivateState = {
+        type: "scrolling",
+        carousel: { value: -50, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeInertiaItem(-50, 0, 2, -5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const next = reduce(state, { type: "tick", timestamp: 16 });
+      expect(next.type).toBe("scrolling");
+      expect(next.items.a.type).toBe("inertia");
+      expect(next.items.a.transform.x.value).toBeLessThan(-50);
     });
   });
 
   // -------------------------------------------------------------------------
-  // focused state
+  // locked state
   // -------------------------------------------------------------------------
 
-  describe("focused state", () => {
-    function makeFocusedState(
+  describe("locked state", () => {
+    function makeLockedState(
       aConfig: { x: number; y: number; scale: number } = {
         x: -50,
         y: -50,
@@ -229,187 +317,278 @@ describe("createCarouselReduce", () => {
       },
     ): CarouselPrivateState {
       return {
-        type: "focused",
-        focusedItemId: "a",
+        type: "locked",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: makeItem(aConfig.x, aConfig.y, aConfig.scale),
-          b: makeItem(),
-          c: makeItem(),
+          a: makeTrackingItem(aConfig.x, aConfig.y, aConfig.scale),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
         },
       };
     }
 
-    it("returns the same reference on tick", () => {
+    it("returns the same reference on tick when no items are animating", () => {
       const reduce = makeReduce();
-      const state = makeFocusedState();
+      const state = makeLockedState();
       expect(reduce(state, { type: "tick", timestamp: 16 })).toBe(state);
     });
 
-    it("applies motion to the focused item", () => {
+    it("applies motion to the tracking item", () => {
       const reduce = makeReduce();
       const state = reduce(
-        makeFocusedState(),
+        makeLockedState(),
         motion({ itemId: "a", dx: 10, dy: 5 }),
       );
-      expect(state.type).toBe("focused");
-      expect(state.items.a.x.value).toBeCloseTo(-40);
-      expect(state.items.a.y.value).toBeCloseTo(-45);
+      expect(state.type).toBe("locked");
+      expect(state.items.a.type).toBe("tracking");
+      expect(state.items.a.transform.x.value).toBeCloseTo(-40);
+      expect(state.items.a.transform.y.value).toBeCloseTo(-45);
     });
 
-    it("does not move non-focused items", () => {
+    it("does not move non-tracking items", () => {
       const reduce = makeReduce();
-      const state = reduce(makeFocusedState(), motion({ itemId: "a", dx: 10 }));
-      expect(state.items.b.x.value).toBe(0);
-      expect(state.items.c.x.value).toBe(0);
+      const state = reduce(makeLockedState(), motion({ itemId: "a", dx: 10 }));
+      expect(state.items.b.transform.x.value).toBe(0);
+      expect(state.items.c.transform.x.value).toBe(0);
     });
 
     it("ignores motion targeting a different item (returns same reference)", () => {
       const reduce = makeReduce();
-      const before = makeFocusedState();
+      const before = makeLockedState();
       const after = reduce(before, motion({ itemId: "b", dx: 30 }));
       expect(after).toBe(before);
     });
 
     it("ignores motion with no itemId (returns same reference)", () => {
       const reduce = makeReduce();
-      const before = makeFocusedState();
+      const before = makeLockedState();
       const after = reduce(before, motion({ dx: 30 }));
       expect(after).toBe(before);
     });
 
     it("does not move the carousel during item pan", () => {
       const reduce = makeReduce();
-      const state = reduce(makeFocusedState(), motion({ itemId: "a", dx: 30 }));
+      const state = reduce(makeLockedState(), motion({ itemId: "a", dx: 30 }));
       expect(state.carousel.value).toBe(0);
     });
 
     it("discards overflow when item is panned beyond its right bound", () => {
       const reduce = makeReduce();
-      // At scale=2, maxX=0. Item is already at x=0; panning right overflows.
-      const before = makeFocusedState({ x: 0, y: 0, scale: 2 });
+      const before = makeLockedState({ x: 0, y: 0, scale: 2 });
       const after = reduce(before, motion({ itemId: "a", dx: 50 }));
-      expect(after.items.a.x.value).toBeCloseTo(0); // clamped at maxX=0
-      expect(after.carousel.value).toBeCloseTo(0); // overflow is discarded
+      expect(after.items.a.transform.x.value).toBeCloseTo(0);
+      expect(after.carousel.value).toBeCloseTo(0);
     });
 
     it("discards overflow when item is panned beyond its left bound", () => {
       const reduce = makeReduce();
-      // At scale=2, minX=-400. Item is already at x=-400; panning left overflows.
-      const before = makeFocusedState({ x: -400, y: 0, scale: 2 });
+      const before = makeLockedState({ x: -400, y: 0, scale: 2 });
       const after = reduce(before, motion({ itemId: "a", dx: -50 }));
-      expect(after.items.a.x.value).toBeCloseTo(-400); // clamped at minX=-400
-      expect(after.carousel.value).toBeCloseTo(0); // overflow is discarded
+      expect(after.items.a.transform.x.value).toBeCloseTo(-400);
+      expect(after.carousel.value).toBeCloseTo(0);
     });
 
-    it("transitions to inertia on release, preserving focusedItemId", () => {
+    it("transitions carousel to settled on release, item transitions to inertia", () => {
       const reduce = makeReduce();
-      const state = reduce(makeFocusedState(), { type: "release" });
-      expect(state.type).toBe("inertia");
-      if (state.type === "inertia") expect(state.focusedItemId).toBe("a");
+      const state = reduce(makeLockedState(), { type: "release" });
+      expect(state.type).toBe("settled");
+      // item had no velocity → settled
+      expect(state.items.a.type).toBe("settled");
+    });
+
+    it("item transitions to inertia on release when it has significant velocity", () => {
+      const reduce = makeReduce();
+      const lockedWithVelocity: CarouselPrivateState = {
+        type: "locked",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: { type: "tracking", transform: makeItemTransform(-50, 0, 2, -5) },
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const state = reduce(lockedWithVelocity, { type: "release" });
+      expect(state.type).toBe("settled");
+      expect(state.items.a.type).toBe("inertia");
+    });
+
+    it("item transitions to snapping on release when under-zoomed", () => {
+      const reduce = makeReduce();
+      const lockedUnderZoom: CarouselPrivateState = {
+        type: "locked",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeTrackingItem(0, 0, 0.5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const state = reduce(lockedUnderZoom, { type: "release" });
+      expect(state.type).toBe("settled");
+      expect(state.items.a.type).toBe("snapping");
+      if (state.items.a.type === "snapping") {
+        expect(state.items.a.target).toEqual({ x: 0, y: 0, scale: 1 });
+      }
     });
   });
 
   // -------------------------------------------------------------------------
-  // inertia state
+  // Item-level inertia (carousel settled, item animating)
   // -------------------------------------------------------------------------
 
-  describe("inertia state", () => {
-    function makeInertiaState(): CarouselPrivateState {
+  describe("item inertia (parallel with carousel settled)", () => {
+    function makeSettledCarouselWithInertiaItem(): CarouselPrivateState {
       return {
-        type: "inertia",
-        focusedItemId: "a",
+        type: "settled",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: makeItem(-50, 0, 2, -5),
-          b: makeItem(),
-          c: makeItem(),
+          a: makeInertiaItem(-50, 0, 2, -5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
         },
       };
     }
 
-    it("advances focused item inertia on tick when velocity is significant", () => {
+    it("advances item inertia on tick", () => {
       const reduce = makeReduce();
-      const before = makeInertiaState();
-      const after = reduce(before, { type: "tick", timestamp: 16 });
-      expect(after.type).toBe("inertia");
-      expect(after.items.a.x.value).toBeLessThan(-50);
+      const after = reduce(makeSettledCarouselWithInertiaItem(), {
+        type: "tick",
+        timestamp: 16,
+      });
+      expect(after.type).toBe("settled");
+      expect(after.items.a.type).toBe("inertia");
+      expect(after.items.a.transform.x.value).toBeLessThan(-50);
     });
 
-    it("does not move the carousel during inertia", () => {
+    it("does not move the carousel during item inertia", () => {
       const reduce = makeReduce();
-      const after = reduce(makeInertiaState(), { type: "tick", timestamp: 16 });
+      const after = reduce(makeSettledCarouselWithInertiaItem(), {
+        type: "tick",
+        timestamp: 16,
+      });
       expect(after.carousel.value).toBe(0);
     });
 
-    it("does not move non-focused items during inertia", () => {
+    it("does not move non-inertia items", () => {
       const reduce = makeReduce();
-      const after = reduce(makeInertiaState(), { type: "tick", timestamp: 16 });
-      expect(after.items.b.x.value).toBe(0);
+      const after = reduce(makeSettledCarouselWithInertiaItem(), {
+        type: "tick",
+        timestamp: 16,
+      });
+      expect(after.items.b.transform.x.value).toBe(0);
     });
 
-    it("transitions to settled when focused item velocity decays", () => {
+    it("item settles when velocity decays", () => {
       const reduce = makeReduce();
-      // No velocity on item a → should settle immediately
       const state: CarouselPrivateState = {
-        type: "inertia",
-        focusedItemId: "a",
+        type: "settled",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: makeItem(-50, 0, 2),
-          b: makeItem(),
-          c: makeItem(),
+          a: makeInertiaItem(-50, 0, 2), // no velocity → settles immediately
+          b: makeSettledItem(),
+          c: makeSettledItem(),
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
-      expect(next.type).toBe("settled");
+      expect(next.items.a.type).toBe("settled");
+      expect(next.items.a.transform.x.value).toBeCloseTo(-50);
     });
 
     it("item stays at its current position after settling (no snap to neutral)", () => {
       const reduce = makeReduce();
       const state: CarouselPrivateState = {
-        type: "inertia",
-        focusedItemId: "a",
+        type: "settled",
         carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
         items: {
-          a: makeItem(-50, -30, 2),
-          b: makeItem(),
-          c: makeItem(),
+          a: makeInertiaItem(-50, -30, 2),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
         },
       };
       const next = reduce(state, { type: "tick", timestamp: 16 });
-      expect(next.type).toBe("settled");
-      expect(next.items.a.x.value).toBeCloseTo(-50);
-      expect(next.items.a.y.value).toBeCloseTo(-30);
-      expect(next.items.a.scale.value).toBeCloseTo(2);
+      expect(next.items.a.transform.x.value).toBeCloseTo(-50);
+      expect(next.items.a.transform.y.value).toBeCloseTo(-30);
+      expect(next.items.a.transform.scale.value).toBeCloseTo(2);
     });
 
-    it("stays in inertia on release (returns same reference)", () => {
+    it("can start scrolling the carousel while item is still in inertia", () => {
       const reduce = makeReduce();
-      const state = makeInertiaState();
-      expect(reduce(state, { type: "release" })).toBe(state);
-    });
-
-    it("transitions to scrolling on carousel motion", () => {
-      const reduce = makeReduce();
-      const next = reduce(makeInertiaState(), motion({ dx: -30 }));
+      const next = reduce(
+        makeSettledCarouselWithInertiaItem(),
+        motion({ dx: -30 }),
+      );
       expect(next.type).toBe("scrolling");
+      expect(next.items.a.type).toBe("inertia"); // item continues
     });
 
-    it("transitions to focused on pinch", () => {
+    it("item transitions to snapping when inertia decays below scale=1", () => {
       const reduce = makeReduce();
-      // Item a is at scale=2 > 1, so motion on it resolves to focused
-      const next = reduce(makeInertiaState(), motion({ itemId: "a", dx: 10 }));
-      expect(next.type).toBe("focused");
-      if (next.type === "focused") expect(next.focusedItemId).toBe("a");
+      const state: CarouselPrivateState = {
+        type: "settled",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: makeInertiaItem(0, 0, 0.5), // no velocity, under-zoom
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+      const next = reduce(state, { type: "tick", timestamp: 16 });
+      expect(next.items.a.type).toBe("snapping");
+      if (next.items.a.type === "snapping") {
+        expect(next.items.a.target).toEqual({ x: 0, y: 0, scale: 1 });
+      }
     });
   });
 
   // -------------------------------------------------------------------------
-  // snapping state
+  // Item-level snapping (under-zoom recovery)
   // -------------------------------------------------------------------------
 
-  describe("snapping state", () => {
+  describe("item snapping (under-zoom recovery)", () => {
+    function makeSnappingItemState(): CarouselPrivateState {
+      return {
+        type: "settled",
+        carousel: { value: 0, velocity: 0, lastUpdatedAt: 0 },
+        items: {
+          a: {
+            type: "snapping",
+            transform: makeItemTransform(0, 0, 0.5),
+            target: { x: 0, y: 0, scale: 1 },
+          },
+          b: makeSettledItem(),
+          c: makeSettledItem(),
+        },
+      };
+    }
+
+    it("advances item spring toward scale=1 on tick", () => {
+      const reduce = makeReduce();
+      const after = reduce(makeSnappingItemState(), {
+        type: "tick",
+        timestamp: 16,
+      });
+      expect(after.items.a.type).toBe("snapping");
+      expect(after.items.a.transform.scale.value).toBeGreaterThan(0.5);
+      expect(after.items.a.transform.scale.value).toBeLessThan(1);
+    });
+
+    it("settles item when scale reaches target", () => {
+      const reduce = makeReduce();
+      let state = makeSnappingItemState();
+      for (let i = 1; i <= 500; i++) {
+        state = reduce(state, { type: "tick", timestamp: i * 16 });
+        if (state.items.a.type === "settled") break;
+      }
+      expect(state.items.a.type).toBe("settled");
+      expect(state.items.a.transform.scale.value).toBeCloseTo(1, 2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // snapping state (carousel-level)
+  // -------------------------------------------------------------------------
+
+  describe("snapping state (carousel)", () => {
     function makeSnappingState(
       carouselX = -200,
       carouselTarget = -400,
@@ -419,9 +598,9 @@ describe("createCarouselReduce", () => {
         carousel: { value: carouselX, velocity: 0, lastUpdatedAt: 0 },
         carouselTarget,
         items: {
-          a: makeItem(-50, 0, 1.5),
-          b: makeItem(),
-          c: makeItem(),
+          a: makeSettledItem(-50, 0, 1.5),
+          b: makeSettledItem(),
+          c: makeSettledItem(),
         },
       };
     }
@@ -437,15 +616,15 @@ describe("createCarouselReduce", () => {
       expect(after.carousel.value).toBeGreaterThan(-400);
     });
 
-    it("items do not spring during snapping (stay at current position)", () => {
+    it("items do not spring during carousel snapping (stay at current position)", () => {
       const reduce = makeReduce();
       const after = reduce(makeSnappingState(), {
         type: "tick",
         timestamp: 16,
       });
       if (after.type === "snapping") {
-        expect(after.items.a.scale.value).toBe(1.5); // unchanged
-        expect(after.items.a.x.value).toBe(-50); // unchanged
+        expect(after.items.a.transform.scale.value).toBe(1.5);
+        expect(after.items.a.transform.x.value).toBe(-50);
       }
     });
 
@@ -457,13 +636,13 @@ describe("createCarouselReduce", () => {
       expect(after.carousel.value).toBeCloseTo(-400);
     });
 
-    it("items stay at their current positions on settling (no reset to neutral)", () => {
+    it("items stay at their current positions on settling", () => {
       const reduce = makeReduce();
       const state = makeSnappingState(-399.9, -400);
       const after = reduce(state, { type: "tick", timestamp: 16 });
       expect(after.type).toBe("settled");
-      expect(after.items.a.scale.value).toBe(1.5);
-      expect(after.items.a.x.value).toBe(-50);
+      expect(after.items.a.transform.scale.value).toBe(1.5);
+      expect(after.items.a.transform.x.value).toBe(-50);
     });
 
     it("converges carousel to snap target over many frames", () => {
@@ -489,26 +668,23 @@ describe("createCarouselReduce", () => {
       expect(after.type).toBe("scrolling");
     });
 
-    it("transitions to focused when a zoomed-in item is panned during snapping", () => {
+    it("ignores item-targeted motions during carousel snapping", () => {
       const reduce = makeReduce();
-      // Item a is at scale=1.5 > 1, so motion on it resolves to focused
-      const after = reduce(
-        makeSnappingState(),
-        motion({ itemId: "a", dx: 10 }),
-      );
-      expect(after.type).toBe("focused");
-      if (after.type === "focused") expect(after.focusedItemId).toBe("a");
+      const state = makeSnappingState();
+      const after = reduce(state, motion({ itemId: "a", dx: 10 }));
+      expect(after).toBe(state);
     });
   });
 
   // -------------------------------------------------------------------------
-  // toCarouselPublicState
+  // publish
   // -------------------------------------------------------------------------
 
-  describe("toCarouselPublicState", () => {
+  describe("publish", () => {
     it("maps private state to public state correctly", () => {
+      const { publish } = createCarouselModel(DEFAULT_CONFIG);
       const state = settled(-400, { a: { x: -10, y: 5, scale: 1.5 } });
-      const pub = toCarouselPublicState(state);
+      const pub = publish(state);
       expect(pub.carouselTranslateX).toBe(-400);
       expect(pub.items.a).toEqual({
         transformX: -10,

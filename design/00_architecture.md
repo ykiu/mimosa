@@ -15,7 +15,7 @@ type Callback<T> = (value: T) => void;
 **Reducer** is the core abstraction for state machines in this library. A Reducer is a pure function that takes the current state and an action, and returns the next state:
 
 ```typescript
-type Reducer<TState, TAction> = (state: TState, action: TAction) => TState;
+type Reducer<TState, TStoreAction> = (state: TState, action: TStoreAction) => TState;
 ```
 
 Some reducers also return an optional output event alongside the new state (e.g. Interpreter reducers that emit an `InterpreterEvent`):
@@ -23,6 +23,15 @@ Some reducers also return an optional output event alongside the new state (e.g.
 ```typescript
 // Variant used by Interpreters
 reduce(state, action) => { state: TState; event?: TOutputEvent }
+```
+
+**Model** is the top-level abstraction that bundles a reducer with a projection function. It encapsulates both the private state machine and the mapping to a public-facing state that consumers observe:
+
+```typescript
+interface Model<TPublicState, TTransformPrivateState, TStoreAction> {
+  reduce: Reducer<TTransformPrivateState, TStoreAction>;
+  publish(state: TTransformPrivateState): TPublicState;
+}
 ```
 
 **Motion** is the motion payload used internally by the Store. It represents the relative change from the previous state. For pan gestures, use `dScale: 1` and `originX/Y: 0`.
@@ -129,55 +138,45 @@ Each action corresponds to a DOM event. Side effects are confined to the thin `d
 
 ## Model Module
 
-The Model module contains the pure state transition logic for transformations. Following the library-wide [State Machine Design](#state-machine-design) principles, it defines a reducer that describes how the transform state changes in response to gestures and animation ticks. Separating this logic from the Store makes it independently testable and replaceable.
+The Model module contains the pure state transition logic for transformations, expressed as the Model interface. Following the library-wide [State Machine Design](#state-machine-design) principles, it defines a reducer that describes how the transform state changes in response to gestures and animation ticks. Separating this logic from the Store makes it independently testable and replaceable.
+
+### Pre-Built Models
+
+The Model module provides factory functions for several pre-built Models for common use cases such as single-item pinch-to-zoom and multi-item carousels.
+
 
 ```typescript
-declare function createReduce(snap?: SnapConfig): Reducer<TransformPrivateState>;
-declare function toPublicState(state: TransformPrivateState): State;
+declare function createModel(options: { /* model-specific options */ }): Model<State, TransformPrivateState, StoreAction>;
 ```
 
-For multi-item carousels that support per-item pinch-to-zoom, the Model also provides a carousel reducer:
+#### Single-Item Transform Model
+
+A Model for single-item pinch-to-zoom and pan. Supports optional snapping.
 
 ```typescript
-type CarouselConfig = {
+type Options = {
+  x?: (value: number) => number;
+  y?: (value: number) => number;
+};
+```
+
+#### Multi-Item Carousel Model
+
+A Model for multi-item carousels that support per-item pinch-to-zoom.:
+
+```typescript
+type Options = {
   itemWidth: number;   // item container width (px)
   itemHeight: number;  // item container height (px)
   itemIds: readonly string[];  // ordered list of item identifiers
 };
-
-type CarouselPublicState = {
-  carouselTranslateX: number;  // horizontal offset of the carousel strip (px)
-  items: Record<string, { transformX: number; transformY: number; scale: number }>;
-};
-
-declare function createCarouselReduce(config: CarouselConfig): Reducer<CarouselPrivateState>;
-declare function toCarouselPublicState(state: CarouselPrivateState): CarouselPublicState;
 ```
 
-The carousel reducer uses a single global phase shared across the carousel strip and all items. This avoids an exponential explosion of per-item phase combinations. The five phases are:
+#### ValuePrimitives
 
-- **scrolling** — the carousel strip is being scrolled; items are not transformed.
-- **focused** — one specific item (`focusedItemId`) is receiving gesture input. The carousel does not move and overflow beyond the item's pan bounds is discarded.
-- **inertia** — the focused item is coasting after the gesture was released; only that item advances; the carousel stays put.
-- **snapping** — the carousel strip is spring-snapping to the nearest item boundary; items remain at their current positions.
-- **settled** — everything is at rest.
-
-A motion event transitions to `focused` when it targets an item that is already zoomed in (`scale > 1`) or carries a scale change (`dScale ≠ 1`). All other motion transitions to `scrolling`. Items retain their position and scale after settling — they do not snap back to neutral.
-
-Implementation details:
-
-- `TransformPrivateState` is a tagged union with `type` as the discriminant. The four variants are: `tracking`, `inertia`, `snapping`, and `settled`.
-- `StoreAction` is either an `InterpreterEvent` (emitted by Interpreters) or `{ type: 'tick'; timestamp: number }` (emitted each animation frame).
-- The reducer delegates tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: `LinearPrimitive` for translation and `ExponentialPrimitive` for scale. Both carry a `lastUpdatedAt: number` field (NaN when never updated). All primitive update functions accept a `timestamp` and compute `dtMs` internally. LinearPrimitive treats translation linearly; ExponentialPrimitive treats scale exponentially for a more natural pinch-to-zoom feel.
+- The model reducers delegate tracking of the rate of change for transform and scale to sub-reducers called ValuePrimitives. There are two ValuePrimitive types: `LinearPrimitive` for translation and `ExponentialPrimitive` for scale. Both carry a `lastUpdatedAt: number` field (NaN when never updated). All primitive update functions accept a `timestamp` and compute `dtMs` internally. LinearPrimitive treats translation linearly; ExponentialPrimitive treats scale exponentially for a more natural pinch-to-zoom feel.
 - Velocity information is held inside the ValuePrimitives as internal state and is not included in the public `State`.
-- The Model supports an optional snap configuration (`SnapConfig`) that controls snapping behaviour. When configured, the Model transitions through the following internal phases: **tracking** (motions being applied) → **snapping** (exponential spring animation toward the nearest snap point) → **settled**. When a `release` event is received in the `tracking` or `inertia` state, the Model transitions to `snapping` immediately. If no `release` event is received (e.g. from mouse wheel gestures that have no explicit release), inertia runs as normal and snapping begins once velocity decays below threshold. Any new motion received while snapping resets the phase back to `tracking`.
 
-```typescript
-type SnapConfig = {
-  x?: (value: number) => number; // returns the nearest snap target for the given x
-  y?: (value: number) => number; // returns the nearest snap target for the given y
-};
-```
 
 ## Store Module
 
@@ -195,8 +194,7 @@ type MountedStore<TState> = {
 };
 
 declare function createStore<TPrivateState, TState>(
-  reduce: Reducer<TPrivateState>,
-  toPublicState: (state: TPrivateState) => TState,
+  model: Model<TState, TPrivateState, StoreAction>,
 ): Store<TState>;
 ```
 
@@ -205,7 +203,7 @@ Mounting the `MountedInterpreter[]` passed to the Store (i.e., calling the Inter
 To create a transform store with the default Model:
 
 ```typescript
-const store = createStore(createReduce(snapConfig), toPublicState);
+const store = createStore(createModel(snapConfig));
 ```
 
 ## Renderer Module
@@ -226,7 +224,7 @@ declare function createRenderer(): Renderer;
 ## Module Dependencies
 
 - The Renderer depends on the Store. The Renderer subscribes to the Store's state and applies transformations to the target element.
-- The Store depends on the Interpreter and the Model (via the reducer passed to it). The Store wires them together into an animation loop.
+- The Store depends on the Interpreter and the Model. The Store wires them together into an animation loop.
 - The Model does not depend on the Store, Interpreter, or Renderer. It is a pure function from state and action to state.
 - The Interpreter does not depend on the Store, Model, or Renderer. The Interpreter focuses solely on processing user input and generating Motion.
 
